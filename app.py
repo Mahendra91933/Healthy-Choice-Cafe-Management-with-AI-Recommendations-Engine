@@ -1,8 +1,5 @@
 from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-import pandas as pd
-from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -11,69 +8,117 @@ import os
 import random
 import time
 from datetime import datetime
+import csv
+from sklearn.neighbors import NearestNeighbors
+import pandas as pd
+import numpy as np
+
 
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # Change to a secure key in production
 
-# Configure SQLAlchemy - Using SQLite for simplicity
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///cafe_zone.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Initialize SQLAlchemy
-db = SQLAlchemy(app)
-
-# FoodItem Model
-class FoodItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    category = db.Column(db.String(50))
-    price = db.Column(db.Integer)
-    description = db.Column(db.String(200))
-    image_url = db.Column(db.String(200))  # Image ka path
-    rating = db.Column(db.Float)
-    protein = db.Column(db.Float)  # Protein in grams
-    carbs = db.Column(db.Float)    # Carbohydrates in grams
-    fats = db.Column(db.Float)     # Fats in grams
-    calories = db.Column(db.Integer)  # Calories
-
-# User Model
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    mobile = db.Column(db.String(15), unique=True, nullable=False)
-    email = db.Column(db.String(255), unique=True, nullable=False)
-    dob = db.Column(db.Date)
-    gender = db.Column(db.String(10))
-
-# LoginHistory Model
-class LoginHistory(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    login_time = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-# GuestOrder Model
-class GuestOrder(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # For logged-in users
-    name = db.Column(db.String(255), nullable=False)
-    mobile = db.Column(db.String(15), nullable=False)
-    email = db.Column(db.String(255), nullable=False)
-    order_data = db.Column(db.Text, nullable=False)  # JSON string of cart items
-    total_amount = db.Column(db.Float, nullable=False)
-    payment_method = db.Column(db.String(50), nullable=False)
-    diet_preference = db.Column(db.String(20))  # 'diet', 'non-diet', or None
-    order_date = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-
-
 # In-memory storage for OTP (temporary)
 otp_store = {}
 login_otp_store = {}
 
+# In-memory storage for data
+users = []
+guest_orders = []
+login_history = []
+
 # Generate random 4-digit OTP
 def generate_otp():
     return str(random.randint(1000, 9999))
+
+# Load food items from CSV
+def load_food_items():
+    try:
+        with open('FoodItem_export_clean.csv', 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            items = []
+            for row in reader:
+                item = {
+                    'id': row.get('id', ''),
+                    'name': row.get('name', ''),
+                    'description': row.get('description', ''),
+                    'price': float(row.get('price', 0)),
+                    'category': row.get('category', ''),
+                    'subcategory': row.get('subcategory', ''),
+                    'image_url': row.get('image_url', ''),
+                    'protein': float(row.get('protein', 0)),
+                    'carbs': float(row.get('carbs', 0)),
+                    'fats': float(row.get('fats', 0)),
+                    'calories': float(row.get('calories', 0)),
+                    'restaurant': row.get('restaurant', ''),
+                    'cuisine': row.get('cuisine', '')
+                }
+                items.append(item)
+            return items
+    except Exception as e:
+        print(f"Error loading food items: {e}")
+        return []
+
+# Initialize NearestNeighbors model for recommendations
+def initialize_recommendation_model():
+    items = load_food_items()
+    if not items:
+        return None, None
+
+    # Create feature matrix from nutritional data
+    features = []
+    item_ids = []
+    for item in items:
+        features.append([
+            item['protein'],
+            item['carbs'],
+            item['fats'],
+            item['calories']
+        ])
+        item_ids.append(item['id'])
+
+    features_df = pd.DataFrame(features, columns=['protein', 'carbs', 'fats', 'calories'])
+    features_scaled = (features_df - features_df.mean()) / features_df.std()
+
+    # Fit NearestNeighbors model
+    nn_model = NearestNeighbors(n_neighbors=6, algorithm='auto')  # 6 to get 5 recommendations + itself
+    nn_model.fit(features_scaled)
+
+    return nn_model, items
+
+# Get food recommendations based on nutritional similarity
+def get_food_recommendations(item_id, num_recommendations=5):
+    nn_model, items = initialize_recommendation_model()
+    if nn_model is None or not items:
+        return []
+
+    # Find the item
+    target_item = next((item for item in items if item['id'] == item_id), None)
+    if not target_item:
+        return []
+
+    # Create feature vector for target item
+    target_features = pd.DataFrame([[
+        target_item['protein'],
+        target_item['carbs'],
+        target_item['fats'],
+        target_item['calories']
+    ]], columns=['protein', 'carbs', 'fats', 'calories'])
+
+    # Scale features
+    items_df = pd.DataFrame([[item['protein'], item['carbs'], item['fats'], item['calories']] for item in items],
+                           columns=['protein', 'carbs', 'fats', 'calories'])
+    target_features_scaled = (target_features - items_df.mean()) / items_df.std()
+
+    # Find nearest neighbors
+    distances, indices = nn_model.kneighbors(target_features_scaled, n_neighbors=num_recommendations+1)
+
+    # Get recommended items (excluding the item itself)
+    recommendations = []
+    for idx in indices[0][1:]:  # Skip first item (itself)
+        recommendations.append(items[idx])
+
+    return recommendations
 
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
@@ -91,8 +136,6 @@ def send_otp():
         'mobile': mobile,
         'expiry': time.time() + 120  # 2 minutes
     }
-
-    print(f"OTP for {mobile}: {otp}")
 
     return jsonify({
         'success': True,
@@ -136,29 +179,28 @@ def register():
     if not name or not mobile or not email:
         return jsonify({'error': 'Name, mobile, and email are required'}), 400
 
-    try:
-        # Check if guest order already exists
-        existing_guest = GuestOrder.query.filter((GuestOrder.mobile == mobile) | (GuestOrder.email == email)).first()
-        if existing_guest:
-            return jsonify({'error': 'You have already placed a guest order. Please login instead.'}), 400
+    # Check if guest order already exists
+    existing_guest = next((o for o in guest_orders if o['mobile'] == mobile or o['email'] == email), None)
+    if existing_guest:
+        return jsonify({'error': 'You have already placed a guest order. Please login instead.'}), 400
 
-        # Check if user already exists
-        existing_user = User.query.filter((User.mobile == mobile) | (User.email == email)).first()
-        if existing_user:
-            return jsonify({'error': 'User already exists'}), 400
+    # Check if user already exists
+    existing_user = next((u for u in users if u['mobile'] == mobile or u['email'] == email), None)
+    if existing_user:
+        return jsonify({'error': 'User already exists'}), 400
 
-        # Create new user
-        new_user = User(name=name, mobile=mobile, email=email)
-        db.session.add(new_user)
-        db.session.commit()
+    # Create new user
+    new_user = {
+        'id': len(users) + 1,
+        'name': name,
+        'mobile': mobile,
+        'email': email,
+        'dob': None,
+        'gender': None
+    }
+    users.append(new_user)
 
-        print(f"User registered: {name}, {mobile}, {email}")
-
-        return jsonify({'success': True, 'message': 'User registered successfully'})
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error registering user: {e}")
-        return jsonify({'error': 'Failed to register user'}), 500
+    return jsonify({'success': True, 'message': 'User registered successfully'})
 
 @app.route('/check-user', methods=['POST'])
 def check_user():
@@ -168,24 +210,20 @@ def check_user():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
+    user = next((u for u in users if u['mobile'] == mobile), None)
 
-        if user:
-            user_data = {
-                'id': user.id,
-                'name': user.name,
-                'mobile': user.mobile,
-                'email': user.email,
-                'dob': user.dob.isoformat() if user.dob else None,
-                'gender': user.gender
-            }
-            return jsonify({'exists': True, 'user': user_data})
-        else:
-            return jsonify({'exists': False})
-    except Exception as e:
-        print(f"Error checking user: {e}")
-        return jsonify({'error': 'Failed to check user'}), 500
+    if user:
+        user_data = {
+            'id': user['id'],
+            'name': user['name'],
+            'mobile': user['mobile'],
+            'email': user['email'],
+            'dob': user['dob'],
+            'gender': user['gender']
+        }
+        return jsonify({'exists': True, 'user': user_data})
+    else:
+        return jsonify({'exists': False})
 
 @app.route('/update-profile', methods=['POST'])
 def update_profile():
@@ -198,39 +236,29 @@ def update_profile():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
+    user = next((u for u in users if u['mobile'] == mobile), None)
 
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
-        # Update user fields
-        if name:
-            user.name = name
-        if dob:
-            from datetime import datetime
-            user.dob = datetime.strptime(dob, '%Y-%m-%d').date()
-        if gender:
-            user.gender = gender
+    # Update user fields
+    if name:
+        user['name'] = name
+    if dob:
+        user['dob'] = dob
+    if gender:
+        user['gender'] = gender
 
-        db.session.commit()
+    updated_user = {
+        'id': user['id'],
+        'name': user['name'],
+        'mobile': user['mobile'],
+        'email': user['email'],
+        'dob': user['dob'],
+        'gender': user['gender']
+    }
 
-        updated_user = {
-            'id': user.id,
-            'name': user.name,
-            'mobile': user.mobile,
-            'email': user.email,
-            'dob': user.dob.isoformat() if user.dob else None,
-            'gender': user.gender
-        }
-
-        print(f"Profile updated for {mobile}: {name}, {dob}, {gender}")
-
-        return jsonify({'success': True, 'message': 'Profile updated successfully', 'user': updated_user})
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error updating profile: {e}")
-        return jsonify({'error': 'Failed to update profile'}), 500
+    return jsonify({'success': True, 'message': 'Profile updated successfully', 'user': updated_user})
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -240,31 +268,25 @@ def login():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
-        if not user:
-            return jsonify({'error': 'User not registered'}), 404
+    user = next((u for u in users if u['mobile'] == mobile), None)
+    if not user:
+        return jsonify({'error': 'User not registered'}), 404
 
-        otp = generate_otp()
-        otp_id = str(int(time.time() * 1000))
+    otp = generate_otp()
+    otp_id = str(int(time.time() * 1000))
 
-        login_otp_store[otp_id] = {
-            'otp': otp,
-            'mobile': mobile,
-            'expiry': time.time() + 120  # 2 minutes
-        }
+    login_otp_store[otp_id] = {
+        'otp': otp,
+        'mobile': mobile,
+        'expiry': time.time() + 120  # 2 minutes
+    }
 
-        print(f"Login OTP for {mobile}: {otp}")
-
-        return jsonify({
-            'success': True,
-            'otpId': otp_id,
-            'otp': otp,  # Include OTP for testing (remove in production)
-            'message': 'Login OTP sent successfully'
-        })
-    except Exception as e:
-        print(f"Error sending login OTP: {e}")
-        return jsonify({'error': 'Failed to send login OTP'}), 500
+    return jsonify({
+        'success': True,
+        'otpId': otp_id,
+        'otp': otp,  # Include OTP for testing (remove in production)
+        'message': 'Login OTP sent successfully'
+    })
 
 @app.route('/verify-login-otp', methods=['POST'])
 def verify_login_otp():
@@ -287,28 +309,27 @@ def verify_login_otp():
     if stored_otp['otp'] != otp:
         return jsonify({'error': 'Invalid OTP'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=stored_otp['mobile']).first()
-        user_id = user.id
+    user = next((u for u in users if u['mobile'] == stored_otp['mobile']), None)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
-        # Record login history
-        login_history = LoginHistory(user_id=user_id)
-        db.session.add(login_history)
-        db.session.commit()
+    user_id = user['id']
 
-        # Store user name in session
-        session['user_name'] = user.name
-        session['user_id'] = user_id
+    # Record login history
+    new_login_history = {
+        'id': len(login_history) + 1,
+        'user_id': user_id,
+        'login_time': datetime.now().isoformat()
+    }
+    login_history.append(new_login_history)
 
-        del login_otp_store[otp_id]
+    # Store user name in session
+    session['user_name'] = user['name']
+    session['user_id'] = user_id
 
-        print(f"User logged in: {stored_otp['mobile']}")
+    del login_otp_store[otp_id]
 
-        return jsonify({'success': True, 'message': 'Login successful', 'userId': user_id})
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error verifying login OTP: {e}")
-        return jsonify({'error': 'Failed to verify login OTP'}), 500
+    return jsonify({'success': True, 'message': 'Login successful', 'userId': user_id})
 
 @app.route('/login-count', methods=['POST'])
 def login_count():
@@ -318,15 +339,12 @@ def login_count():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
-        if not user:
-            return jsonify({'loginCount': 0})
-        login_count_value = LoginHistory.query.filter_by(user_id=user.id).count()
-        return jsonify({'loginCount': login_count_value})
-    except Exception as e:
-        print(f"Error fetching login count: {e}")
-        return jsonify({'error': 'Failed to fetch login count'}), 500
+    user = next((u for u in users if u['mobile'] == mobile), None)
+    if not user:
+        return jsonify({'loginCount': 0})
+
+    login_count_value = len([lh for lh in login_history if lh['user_id'] == user['id']])
+    return jsonify({'loginCount': login_count_value})
 
 @app.route('/get-login-history', methods=['POST'])
 def get_login_history():
@@ -336,42 +354,31 @@ def get_login_history():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
-        if not user:
-            return jsonify({'loginHistory': []})
+    user = next((u for u in users if u['mobile'] == mobile), None)
+    if not user:
+        return jsonify({'loginHistory': []})
 
-        login_history = LoginHistory.query.filter_by(user_id=user.id).order_by(LoginHistory.login_time.desc()).all()
-        history_data = [{
-            'id': entry.id,
-            'login_time': entry.login_time.isoformat()
-        } for entry in login_history]
-        return jsonify({'loginHistory': history_data})
-    except Exception as e:
-        print(f"Error fetching login history: {e}")
-        return jsonify({'error': 'Failed to fetch login history'}), 500
+    user_login_history = [lh for lh in login_history if lh['user_id'] == user['id']]
+    user_login_history.sort(key=lambda x: x['login_time'], reverse=True)
+    history_data = [{
+        'id': entry['id'],
+        'login_time': entry['login_time']
+    } for entry in user_login_history]
+    return jsonify({'loginHistory': history_data})
 
 @app.route('/food-items', methods=['GET'])
 def get_food_items():
+    items = load_food_items()
+    return jsonify(items)
+
+@app.route('/recommendations/<item_id>', methods=['GET'])
+def get_recommendations(item_id):
     try:
-        items = FoodItem.query.all()
-        food_items = [{
-            'id': item.id,
-            'name': item.name,
-            'category': item.category,
-            'price': item.price,
-            'description': item.description,
-            'image_url': item.image_url,
-            'rating': item.rating,
-            'protein': item.protein,
-            'carbs': item.carbs,
-            'fats': item.fats,
-            'calories': item.calories
-        } for item in items]
-        return jsonify(food_items)
+        recommendations = get_food_recommendations(item_id)
+        return jsonify({'success': True, 'recommendations': recommendations})
     except Exception as e:
-        print(f"Error fetching food items: {e}")
-        return jsonify({'error': 'Failed to fetch food items'}), 500
+        print(f"Error getting recommendations: {e}")
+        return jsonify({'success': False, 'error': 'Failed to get recommendations'}), 500
 
 @app.route('/generate-invoice', methods=['POST'])
 def generate_invoice():
@@ -524,28 +531,24 @@ def save_order():
     if not name or not mobile or not email or not order_data or not total_amount or not payment_method:
         return jsonify({'error': 'All fields are required'}), 400
 
-    try:
-        # Save to GuestOrder table
-        guest_order = GuestOrder(
-            user_id=user_id,
-            name=name,
-            mobile=mobile,
-            email=email,
-            order_data=order_data,
-            total_amount=total_amount,
-            payment_method=payment_method,
-            diet_preference=diet_preference
-        )
-        db.session.add(guest_order)
-        db.session.commit()
+    # Save to guest_orders list
+    new_order = {
+        'id': len(guest_orders) + 1,
+        'user_id': user_id,
+        'name': name,
+        'mobile': mobile,
+        'email': email,
+        'order_data': order_data,
+        'total_amount': total_amount,
+        'payment_method': payment_method,
+        'diet_preference': diet_preference,
+        'order_date': datetime.now().isoformat()
+    }
+    guest_orders.append(new_order)
 
-        print(f"Guest order saved: {name}, {mobile}, {email}, {total_amount}, diet: {diet_preference}, user_id: {user_id}")
+    print(f"Guest order saved: {name}, {mobile}, {email}, {total_amount}, diet: {diet_preference}, user_id: {user_id}")
 
-        return jsonify({'success': True, 'message': 'Order saved successfully', 'order_id': guest_order.id})
-    except Exception as e:
-        db.session.rollback()
-        print(f"Error saving guest order: {e}")
-        return jsonify({'error': 'Failed to save order'}), 500
+    return jsonify({'success': True, 'message': 'Order saved successfully', 'order_id': new_order['id']})
 
 @app.route('/get-guest-orders', methods=['POST'])
 def get_guest_orders():
@@ -556,31 +559,29 @@ def get_guest_orders():
     if not mobile and not email:
         return jsonify({'error': 'Mobile or email is required'}), 400
 
-    try:
-        query = GuestOrder.query
-        if mobile:
-            query = query.filter_by(mobile=mobile)
-        if email:
-            query = query.filter_by(email=email)
+    # Filter orders
+    orders = guest_orders
+    if mobile:
+        orders = [o for o in orders if o['mobile'] == mobile]
+    if email:
+        orders = [o for o in orders if o['email'] == email]
 
-        orders = query.order_by(GuestOrder.order_date.desc()).all()
+    # Sort by order_date descending
+    orders.sort(key=lambda x: x['order_date'], reverse=True)
 
-        orders_data = [{
-            'id': order.id,
-            'name': order.name,
-            'mobile': order.mobile,
-            'email': order.email,
-            'order_data': order.order_data,
-            'total_amount': order.total_amount,
-            'payment_method': order.payment_method,
-            'diet_preference': order.diet_preference,
-            'order_date': order.order_date.isoformat()
-        } for order in orders]
+    orders_data = [{
+        'id': order['id'],
+        'name': order['name'],
+        'mobile': order['mobile'],
+        'email': order['email'],
+        'order_data': order['order_data'],
+        'total_amount': order['total_amount'],
+        'payment_method': order['payment_method'],
+        'diet_preference': order['diet_preference'],
+        'order_date': order['order_date']
+    } for order in orders]
 
-        return jsonify({'success': True, 'orders': orders_data})
-    except Exception as e:
-        print(f"Error fetching guest orders: {e}")
-        return jsonify({'error': 'Failed to fetch guest orders'}), 500
+    return jsonify({'success': True, 'orders': orders_data})
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -625,24 +626,20 @@ def profile_page():
         if not mobile:
             return jsonify({'error': 'Mobile number is required'}), 400
 
-        try:
-            user = User.query.filter_by(mobile=mobile).first()
+        user = next((u for u in users if u['mobile'] == mobile), None)
 
-            if user:
-                user_data = {
-                    'id': user.id,
-                    'name': user.name,
-                    'mobile': user.mobile,
-                    'email': user.email,
-                    'dob': user.dob.isoformat() if user.dob else None,
-                    'gender': user.gender
-                }
-                return jsonify({'exists': True, 'user': user_data})
-            else:
-                return jsonify({'exists': False})
-        except Exception as e:
-            print(f"Error getting profile: {e}")
-            return jsonify({'error': 'Failed to get profile'}), 500
+        if user:
+            user_data = {
+                'id': user['id'],
+                'name': user['name'],
+                'mobile': user['mobile'],
+                'email': user['email'],
+                'dob': user['dob'],
+                'gender': user['gender']
+            }
+            return jsonify({'exists': True, 'user': user_data})
+        else:
+            return jsonify({'exists': False})
 
     return render_template('profile.html')
 
@@ -654,110 +651,104 @@ def get_profile_data():
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    try:
-        user = User.query.filter_by(mobile=mobile).first()
+    user = next((u for u in users if u['mobile'] == mobile), None)
 
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
 
-        user_data = {
-            'id': user.id,
-            'name': user.name,
-            'mobile': user.mobile,
-            'email': user.email,
-            'dob': user.dob.isoformat() if user.dob else None,
-            'gender': user.gender
-        }
+    user_data = {
+        'id': user['id'],
+        'name': user['name'],
+        'mobile': user['mobile'],
+        'email': user['email'],
+        'dob': user['dob'],
+        'gender': user['gender']
+    }
 
-        # Get login count
-        login_count_value = LoginHistory.query.filter_by(user_id=user.id).count()
+    # Get login count
+    login_count_value = len([lh for lh in login_history if lh['user_id'] == user['id']])
 
-        # Get login history
-        login_history = LoginHistory.query.filter_by(user_id=user.id).order_by(LoginHistory.login_time.desc()).all()
-        history_data = [{
-            'id': entry.id,
-            'login_time': entry.login_time.isoformat()
-        } for entry in login_history]
+    # Get login history
+    user_login_history = [lh for lh in login_history if lh['user_id'] == user['id']]
+    user_login_history.sort(key=lambda x: x['login_time'], reverse=True)
+    history_data = [{
+        'id': entry['id'],
+        'login_time': entry['login_time']
+    } for entry in user_login_history]
 
-        # Get orders
-        orders = GuestOrder.query.filter_by(mobile=mobile).order_by(GuestOrder.order_date.desc()).all()
-        orders_data = [{
-            'id': order.id,
-            'name': order.name,
-            'mobile': order.mobile,
-            'email': order.email,
-            'order_data': order.order_data,
-            'total_amount': order.total_amount,
-            'payment_method': order.payment_method,
-            'diet_preference': order.diet_preference,
-            'order_date': order.order_date.isoformat()
-        } for order in orders]
+    # Get orders
+    orders = [o for o in guest_orders if o['mobile'] == mobile]
+    orders.sort(key=lambda x: x['order_date'], reverse=True)
+    orders_data = [{
+        'id': order['id'],
+        'name': order['name'],
+        'mobile': order['mobile'],
+        'email': order['email'],
+        'order_data': order['order_data'],
+        'total_amount': order['total_amount'],
+        'payment_method': order['payment_method'],
+        'diet_preference': order['diet_preference'],
+        'order_date': order['order_date']
+    } for order in orders]
 
-        # Calculate nutritional insights
-        total_orders = len(orders)
-        if total_orders > 0:
-            total_protein = 0
-            total_carbs = 0
-            total_fats = 0
-            total_calories = 0
+    # Calculate nutritional insights
+    total_orders = len(orders)
+    if total_orders > 0:
+        total_protein = 0
+        total_carbs = 0
+        total_fats = 0
+        total_calories = 0
 
-            for order in orders:
-                try:
-                    items = eval(order.order_data)  # Assuming order_data is a string representation of list
-                    for item in items:
-                        total_protein += (item.get('protein', 0) * item.get('quantity', 1))
-                        total_carbs += (item.get('carbs', 0) * item.get('quantity', 1))
-                        total_fats += (item.get('fats', 0) * item.get('quantity', 1))
-                        total_calories += (item.get('calories', 0) * item.get('quantity', 1))
-                except:
-                    pass
+        for order in orders:
+            try:
+                items = eval(order['order_data'])  # Assuming order_data is a string representation of list
+                for item in items:
+                    total_protein += (item.get('protein', 0) * item.get('quantity', 1))
+                    total_carbs += (item.get('carbs', 0) * item.get('quantity', 1))
+                    total_fats += (item.get('fats', 0) * item.get('quantity', 1))
+                    total_calories += (item.get('calories', 0) * item.get('quantity', 1))
+            except:
+                pass
 
-            avg_protein = total_protein / total_orders
-            avg_carbs = total_carbs / total_orders
-            avg_fats = total_fats / total_orders
-            avg_calories = total_calories / total_orders
-        else:
-            avg_protein = avg_carbs = avg_fats = avg_calories = 0
+        avg_protein = total_protein / total_orders
+        avg_carbs = total_carbs / total_orders
+        avg_fats = total_fats / total_orders
+        avg_calories = total_calories / total_orders
+    else:
+        avg_protein = avg_carbs = avg_fats = avg_calories = 0
 
-        # Determine preference
-        diet_orders = sum(1 for o in orders if o.diet_preference == 'diet')
-        non_diet_orders = sum(1 for o in orders if o.diet_preference == 'non-diet')
-        if diet_orders > non_diet_orders:
-            preference = 'Diet'
-        elif non_diet_orders > diet_orders:
-            preference = 'Non-Diet'
-        else:
-            preference = 'Mixed'
+    # Determine preference
+    diet_orders = sum(1 for o in orders if o['diet_preference'] == 'diet')
+    non_diet_orders = sum(1 for o in orders if o['diet_preference'] == 'non-diet')
+    if diet_orders > non_diet_orders:
+        preference = 'Diet'
+    elif non_diet_orders > diet_orders:
+        preference = 'Non-Diet'
+    else:
+        preference = 'Mixed'
 
-        return jsonify({
-            'user': user_data,
-            'loginCount': login_count_value,
-            'loginHistory': history_data,
-            'totalOrders': total_orders,
-            'avgProtein': round(avg_protein, 1),
-            'avgCarbs': round(avg_carbs, 1),
-            'avgFats': round(avg_fats, 1),
-            'avgCalories': round(avg_calories),
-            'preference': preference
-        })
-
-    except Exception as e:
-        print(f"Error getting profile data: {e}")
-        return jsonify({'error': 'Failed to get profile data'}), 500
+    return jsonify({
+        'user': user_data,
+        'loginCount': login_count_value,
+        'loginHistory': history_data,
+        'totalOrders': total_orders,
+        'avgProtein': round(avg_protein, 1),
+        'avgCarbs': round(avg_carbs, 1),
+        'avgFats': round(avg_fats, 1),
+        'avgCalories': round(avg_calories),
+        'preference': preference
+    })
 
 @app.route('/welcome', methods=['GET'])
 def welcome():
-    print(f"Request received: {request.method} {request.path}")
     return jsonify({'message': 'Welcome to Cafe Zone!'})
 
 @app.route('/cafeteria')
 def cafeteria():
-    # Database se saara khana fetch karein
-    items = FoodItem.query.all()
+    # Fetch all food items from CSV
+    items = load_food_items()
     user_name = session.get('user_name', 'Guest')
     return render_template('cafeteria.html', items=items, user_name=user_name)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Create tables
     app.run(debug=True, host='0.0.0.0', port=3000)

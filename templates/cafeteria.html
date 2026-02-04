@@ -88,25 +88,7 @@
         <h2 class="section-title">All Items</h2>
 
         <div class="menu-grid">
-            {% for item in items %}
-            <div class="menu-item menu-card">
-                <div class="image-block">
-                    <img src="{{ url_for('static', filename=item.image_url) }}" alt="{{ item.name }}" class="item-image">
-                </div>
-                <div class="item-details">
-                    <div class="title-rating">
-                        <h3 class="item-title">{{ item.name }}</h3>
-                        <div class="item-rating">
-                            <span class="star-icon">&#9733;</span> {{ item.rating }}
-                        </div>
-                    </div>
-                    <p class="item-description">{{ item.description }}</p>
-                    <p class="item-price">Get items @₹{{ item.price }} only</p>
-
-                    <button class="add-btn" onclick="showAddToCartConfirmation('{{ item.id }}', '{{ item.name }}', '{{ item.price }}', '{{ item.image_url }}', '{{ item.protein }}', '{{ item.carbs }}', '{{ item.fats }}', '{{ item.calories }}')">Add +</button>
-                </div>
-            </div>
-            {% endfor %}
+            <!-- Menu items will be loaded dynamically by JavaScript -->
         </div>
         </main>
     </div>
