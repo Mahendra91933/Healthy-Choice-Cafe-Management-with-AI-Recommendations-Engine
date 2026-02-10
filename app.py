@@ -8,215 +8,37 @@ import os
 import random
 import time
 from datetime import datetime
-import csv
-from sklearn.neighbors import NearestNeighbors
-import pandas as pd
-import numpy as np
 
 
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # Change to a secure key in production
 
-# In-memory storage for OTP (temporary)
-otp_store = {}
-login_otp_store = {}
-
-# In-memory storage for data
-users = []
-guest_orders = []
-login_history = []
-
-# Generate random 4-digit OTP
-def generate_otp():
-    return str(random.randint(1000, 9999))
-
-# Load food items from CSV
-def load_food_items():
-    try:
-        with open('FoodItem_export_clean.csv', 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            items = []
-            for row in reader:
-                item = {
-                    'id': row.get('id', ''),
-                    'name': row.get('name', ''),
-                    'description': row.get('description', ''),
-                    'price': float(row.get('price', 0)),
-                    'category': row.get('category', ''),
-                    'subcategory': row.get('subcategory', ''),
-                    'image_url': row.get('image_url', ''),
-                    'protein': float(row.get('protein', 0)),
-                    'carbs': float(row.get('carbs', 0)),
-                    'fats': float(row.get('fats', 0)),
-                    'calories': float(row.get('calories', 0)),
-                    'restaurant': row.get('restaurant', ''),
-                    'cuisine': row.get('cuisine', '')
-                }
-                items.append(item)
-            return items
-    except Exception as e:
-        print(f"Error loading food items: {e}")
-        return []
-
-# Initialize NearestNeighbors model for recommendations
-def initialize_recommendation_model():
-    items = load_food_items()
-    if not items:
-        return None, None
-
-    # Create feature matrix from nutritional data
-    features = []
-    item_ids = []
-    for item in items:
-        features.append([
-            item['protein'],
-            item['carbs'],
-            item['fats'],
-            item['calories']
-        ])
-        item_ids.append(item['id'])
-
-    features_df = pd.DataFrame(features, columns=['protein', 'carbs', 'fats', 'calories'])
-    features_scaled = (features_df - features_df.mean()) / features_df.std()
-
-    # Fit NearestNeighbors model
-    nn_model = NearestNeighbors(n_neighbors=6, algorithm='auto')  # 6 to get 5 recommendations + itself
-    nn_model.fit(features_scaled)
-
-    return nn_model, items
-
-# Get food recommendations based on nutritional similarity
-def get_food_recommendations(item_id, num_recommendations=5):
-    nn_model, items = initialize_recommendation_model()
-    if nn_model is None or not items:
-        return []
-
-    # Find the item
-    target_item = next((item for item in items if item['id'] == item_id), None)
-    if not target_item:
-        return []
-
-    # Create feature vector for target item
-    target_features = pd.DataFrame([[
-        target_item['protein'],
-        target_item['carbs'],
-        target_item['fats'],
-        target_item['calories']
-    ]], columns=['protein', 'carbs', 'fats', 'calories'])
-
-    # Scale features
-    items_df = pd.DataFrame([[item['protein'], item['carbs'], item['fats'], item['calories']] for item in items],
-                           columns=['protein', 'carbs', 'fats', 'calories'])
-    target_features_scaled = (target_features - items_df.mean()) / items_df.std()
-
-    # Find nearest neighbors
-    distances, indices = nn_model.kneighbors(target_features_scaled, n_neighbors=num_recommendations+1)
-
-    # Get recommended items (excluding the item itself)
-    recommendations = []
-    for idx in indices[0][1:]:  # Skip first item (itself)
-        recommendations.append(items[idx])
-
-    return recommendations
-
-@app.route('/send-otp', methods=['POST'])
-def send_otp():
-    data = request.get_json()
-    mobile = data.get('mobile')
-
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
-
-    otp = generate_otp()
-    otp_id = str(int(time.time() * 1000))
-
-    otp_store[otp_id] = {
-        'otp': otp,
-        'mobile': mobile,
-        'expiry': time.time() + 120  # 2 minutes
-    }
-
-    return jsonify({
-        'success': True,
-        'otpId': otp_id,
-        'otp': otp,  # Include OTP for testing (remove in production)
-        'message': 'OTP sent successfully'
-    })
-
-@app.route('/verify-otp', methods=['POST'])
-def verify_otp():
-    data = request.get_json()
-    otp_id = data.get('otpId')
-    otp = data.get('otp')
-
-    if not otp_id or not otp:
-        return jsonify({'error': 'OTP ID and OTP are required'}), 400
-
-    stored_otp = otp_store.get(otp_id)
-
-    if not stored_otp:
-        return jsonify({'error': 'Invalid OTP ID'}), 400
-
-    if time.time() > stored_otp['expiry']:
-        del otp_store[otp_id]
-        return jsonify({'error': 'OTP expired'}), 400
-
-    if stored_otp['otp'] != otp:
-        return jsonify({'error': 'Invalid OTP'}), 400
-
-    # OTP verified successfully
-    del otp_store[otp_id]
-    return jsonify({'success': True, 'message': 'OTP verified successfully'})
-
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
     name = data.get('name')
-    mobile = data.get('mobile')
     email = data.get('email')
+    password = data.get('password')
+    mobile = data.get('mobile')
 
-    if not name or not mobile or not email:
-        return jsonify({'error': 'Name, mobile, and email are required'}), 400
-
-    # Check if guest order already exists
-    existing_guest = next((o for o in guest_orders if o['mobile'] == mobile or o['email'] == email), None)
-    if existing_guest:
-        return jsonify({'error': 'You have already placed a guest order. Please login instead.'}), 400
-
-    # Check if user already exists
-    existing_user = next((u for u in users if u['mobile'] == mobile or u['email'] == email), None)
-    if existing_user:
-        return jsonify({'error': 'User already exists'}), 400
-
-    # Create new user
-    new_user = {
-        'id': len(users) + 1,
-        'name': name,
-        'mobile': mobile,
-        'email': email,
-        'dob': None,
-        'gender': None
-    }
-    users.append(new_user)
-
-    return jsonify({'success': True, 'message': 'User registered successfully'})
+    if not name or not email or not password or not mobile:
+        return jsonify({'error': 'Name, email, password, and mobile are required'}), 400
 
 @app.route('/check-user', methods=['POST'])
 def check_user():
     data = request.get_json()
-    mobile = data.get('mobile')
+    email = data.get('email')
 
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
 
-    user = next((u for u in users if u['mobile'] == mobile), None)
+    user = next((u for u in users if u['email'] == email), None)
 
     if user:
         user_data = {
             'id': user['id'],
             'name': user['name'],
-            'mobile': user['mobile'],
             'email': user['email'],
             'dob': user['dob'],
             'gender': user['gender']
@@ -263,30 +85,34 @@ def update_profile():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    mobile = data.get('mobile')
+    email = data.get('email')
+    password = data.get('password')
 
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
+    if not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
 
-    user = next((u for u in users if u['mobile'] == mobile), None)
+    user = next((u for u in users if u['email'] == email), None)
     if not user:
         return jsonify({'error': 'User not registered'}), 404
 
-    otp = generate_otp()
-    otp_id = str(int(time.time() * 1000))
+    if user['password'] != password:
+        return jsonify({'error': 'Invalid password'}), 401
 
-    login_otp_store[otp_id] = {
-        'otp': otp,
-        'mobile': mobile,
-        'expiry': time.time() + 120  # 2 minutes
+    user_id = user['id']
+
+    # Record login history
+    new_login_history = {
+        'id': len(login_history) + 1,
+        'user_id': user_id,
+        'login_time': datetime.now().isoformat()
     }
+    login_history.append(new_login_history)
 
-    return jsonify({
-        'success': True,
-        'otpId': otp_id,
-        'otp': otp,  # Include OTP for testing (remove in production)
-        'message': 'Login OTP sent successfully'
-    })
+    # Store user name in session
+    session['user_name'] = user['name']
+    session['user_id'] = user_id
+
+    return jsonify({'success': True, 'message': 'Login successful', 'userId': user_id})
 
 @app.route('/verify-login-otp', methods=['POST'])
 def verify_login_otp():
@@ -309,7 +135,7 @@ def verify_login_otp():
     if stored_otp['otp'] != otp:
         return jsonify({'error': 'Invalid OTP'}), 400
 
-    user = next((u for u in users if u['mobile'] == stored_otp['mobile']), None)
+    user = next((u for u in users if u['email'] == stored_otp['email']), None)
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
@@ -334,12 +160,12 @@ def verify_login_otp():
 @app.route('/login-count', methods=['POST'])
 def login_count():
     data = request.get_json()
-    mobile = data.get('mobile')
+    email = data.get('email')
 
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
 
-    user = next((u for u in users if u['mobile'] == mobile), None)
+    user = next((u for u in users if u['email'] == email), None)
     if not user:
         return jsonify({'loginCount': 0})
 
@@ -349,12 +175,12 @@ def login_count():
 @app.route('/get-login-history', methods=['POST'])
 def get_login_history():
     data = request.get_json()
-    mobile = data.get('mobile')
+    email = data.get('email')
 
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
 
-    user = next((u for u in users if u['mobile'] == mobile), None)
+    user = next((u for u in users if u['email'] == email), None)
     if not user:
         return jsonify({'loginHistory': []})
 

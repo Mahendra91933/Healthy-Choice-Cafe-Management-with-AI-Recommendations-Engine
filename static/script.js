@@ -2,8 +2,8 @@
 async function registerUser(e) {
   e.preventDefault();
   const name = document.getElementById('regName').value;
-  const mobile = document.getElementById('regMobile').value;
   const email = document.getElementById('regEmail').value;
+  const password = document.getElementById('regPassword').value;
 
   try {
     const response = await fetch('http://127.0.0.1:3000/register', {
@@ -11,7 +11,7 @@ async function registerUser(e) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, mobile, email })
+      body: JSON.stringify({ name, email, password })
     });
 
     const data = await response.json();
@@ -37,22 +37,6 @@ async function registerUser(e) {
   return false;
 }
 
-// Existing function: loginUser
-async function loginUser(e) {
-  e.preventDefault();
-  const mobile = document.getElementById('loginMobile').value;
-
-  try {
-    // Generate OTP via API (which checks if user exists)
-    await generateOtp();
-
-  } catch (error) {
-    alert('Error during login: ' + error.message);
-    return false;
-  }
-
-  return false;
-}
 
 
 
@@ -208,7 +192,7 @@ async function updateProfile(e) {
     return false;
 }
 
-// --- NEW FORM SWITCHING LOGIC (For Sliding Animation) ---
+
 
 // Get the main container for animation
 const mainContainer = document.querySelector('.login-main');
@@ -245,7 +229,7 @@ let otpTimerInterval;
 
 // Function to generate OTP (API call)
 async function generateOtp() {
-  const mobile = document.getElementById('loginMobile').value;
+  const email = document.getElementById('loginEmail').value;
 
   try {
     const response = await fetch('http://127.0.0.1:3000/login', {
@@ -253,7 +237,7 @@ async function generateOtp() {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ mobile: mobile })
+      body: JSON.stringify({ email: email, password: document.getElementById('loginPassword').value })
     });
 
     if (!response.ok) {
@@ -264,14 +248,27 @@ async function generateOtp() {
     localStorage.setItem('otpId', data.otpId);
     localStorage.setItem('otpExpiry', Date.now() + 120000); // 2 minutes
 
-    document.getElementById('otpMessage').textContent = `OTP sent successfully, your OTP is ${data.otp}`;
-
-    // Show OTP section
+    // Show OTP section with initial message
     document.getElementById('otpSection').style.display = 'block';
     document.getElementById('sendOtpBtn').style.display = 'none';
+    document.getElementById('otpMessage').textContent = 'Sending OTP to your email...';
 
     // Start timer
     startTimer();
+
+    // Send OTP via EmailJS
+    const emailSent = await sendOtpViaEmail(email, data.otp);
+
+    if (emailSent) {
+      document.getElementById('otpMessage').textContent = `OTP sent to your email successfully!`;
+    } else {
+      // Email sending failed - show error message
+      document.getElementById('otpMessage').textContent = `Failed to send OTP email. Please check your EmailJS configuration and try again.`;
+      // Hide OTP section if email fails
+      document.getElementById('otpSection').style.display = 'none';
+      document.getElementById('sendOtpBtn').style.display = 'block';
+      return; // Exit function if email fails
+    }
   } catch (error) {
     alert('Error sending login OTP: ' + error.message);
   }
@@ -408,13 +405,13 @@ async function verifyOtp() {
 
     if (data.success) {
       // Fetch user data after successful login
-      const mobile = document.getElementById('loginMobile').value;
+      const email = document.getElementById('loginEmail').value;
       const checkResponse = await fetch('http://127.0.0.1:3000/check-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ mobile })
+        body: JSON.stringify({ email })
       });
 
       if (checkResponse.ok) {
@@ -427,7 +424,9 @@ async function verifyOtp() {
       // Always redirect to cafeteria after successful login
       window.location.href = '/cafeteria';
     } else {
-      alert('Invalid OTP!');
+      // Invalid OTP - redirect to register page for MFA setup
+      alert('Invalid OTP! Redirecting to registration for security verification.');
+      window.location.href = '/register';
     }
   } catch (error) {
     alert('Error verifying OTP: ' + error.message);

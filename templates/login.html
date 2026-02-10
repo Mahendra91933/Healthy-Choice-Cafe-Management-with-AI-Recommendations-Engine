@@ -20,21 +20,13 @@
                 <div class="form-container login-form">
                     <h2>Login</h2>
                     <form onsubmit="return loginUser(event)">
-                        <label for="loginMobile">Mobile Number</label>
-                        <input type="tel" id="loginMobile" placeholder="Enter your mobile number" required>
+                        <label for="loginEmail">Email</label>
+                        <input type="email" id="loginEmail" placeholder="Enter your email" required>
 
-                        <button type="submit" class="login-button green-btn" id="sendOtpBtn">Send OTP</button>
+                        <label for="loginPassword">Password</label>
+                        <input type="password" id="loginPassword" placeholder="Enter your password" required>
 
-                        <div id="otpSection" style="display: none;">
-                            <p id="otpMessage" style="color: rgb(236, 14, 14);"></p>
-                            <label for="otpInput">Enter OTP</label>
-                            <input type="text" id="otpInput" name="otpInput" placeholder="Enter OTP" maxlength="4">
-
-                            <div id="timerDisplay">Time remaining: 2:00</div>
-                            <button type="button" id="resendOtpBtn" style="display: none;" onclick="resendOtp()">Resend OTP</button>
-
-                            <button type="button" class="login-button" onclick="verifyOtp()">Verify OTP</button>
-                        </div>
+                        <button type="submit" class="login-button green-btn">Login</button>
 
                         <p class="register-link-text">Don’t have an account? <a href="#" onclick="showRegisterPanel()" class="brown-link">Register Here</a></p>
                     </form>
@@ -46,10 +38,9 @@
                     <h2 class="only-register-title"> Register</h2>
                     <form onsubmit="return registerUser(event)">
                         <input type="text" id="regName" placeholder="Full Name" required>
-                        <input type="tel" id="regMobile" placeholder="Mobile Number" required>
                         <input type="email" id="regEmail" placeholder="Email ID" required>
-
-                        <button type="submit" class="login-button green-btn"> Register</button>
+                        <input type="text" id="regMobile" placeholder="Mobile Number" required>
+                        <input type="password" id="regPassword" placeholder="Password" required>
 
                         <p class="register-link-text">Already have an account? <a href="#" onclick="showLoginPanel()" class="brown-link">Login Here</a></p>
                     </form>
