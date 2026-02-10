@@ -4,6 +4,7 @@ async function registerUser(e) {
   const name = document.getElementById('regName').value;
   const email = document.getElementById('regEmail').value;
   const password = document.getElementById('regPassword').value;
+  const mobile = document.getElementById('regMobile').value;
 
   try {
     const response = await fetch('http://127.0.0.1:3000/register', {
@@ -11,7 +12,7 @@ async function registerUser(e) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, email, password })
+      body: JSON.stringify({ name, email, password, mobile })
     });
 
     const data = await response.json();

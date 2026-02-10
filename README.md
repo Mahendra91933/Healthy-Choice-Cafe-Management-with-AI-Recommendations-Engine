@@ -3,7 +3,6 @@
 # 🍽️ ** Healthy Cafe Zone** - Smart Café Management System
 
 [![Flask](https://img.shields.io/badge/Flask-2.3.3-blue.svg)](https://flask.palletsprojects.com/)
-[![MySQL](https://img.shields.io/badge/MySQL-8.1.0-orange.svg)](https://www.mysql.com/)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine?style=social)](https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine)
@@ -88,8 +87,6 @@
 | Component | Technology | Description |
 |-----------|------------|-------------|
 | 🖥️ **Framework** | Flask 2.3.3 | Lightweight WSGI web application framework |
-| 🗄️ **Database** | MySQL 8.1.0 | Robust relational database management |
-| 🔧 **ORM** | SQLAlchemy | Python SQL toolkit and Object-Relational Mapping |
 
 ### **Frontend Technologies**
 | Component | Technology | Description |
@@ -114,7 +111,6 @@
 
 ### 📋 Prerequisites
 - 🐍 **Python 3.8+**
-- 🗄️ **MySQL Server**
 - 📦 **Git**
 - 🌐 **Web Browser**
 
@@ -236,11 +232,8 @@ python app.py
 ```
 cafe-zone/
 ├── 📄 app.py                 # Main Flask application & routes
-├── 🗄️ init_db.py            # Database initialization script
 ├── 📦 requirements.txt      # Python dependencies
 ├── 📖 README.md             # Project documentation
-├── 📁 instance/
-│   └── 🗃️ cafe_zone.db      # SQLite database (development)
 ├── 📁 static/
 │   ├── 🎨 style.css         # Application stylesheets
 │   ├── ⚡ script.js         # Client-side JavaScript

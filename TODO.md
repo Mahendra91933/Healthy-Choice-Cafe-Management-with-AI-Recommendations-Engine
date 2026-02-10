@@ -1,6 +1,5 @@
-# TODO: Remove MongoDB and MySQL Connectivity
-
-- [x] Remove MongoDB imports and connection setup in app.py
-- [x] Update /food-items route to use load_food_items() function from CSV instead of MongoDB
-- [x] Remove pymongo from requirements.txt
-- [x] Update TODO.md to reflect changes
+- [ ] Add missing data structures (users, login_history, etc.) at the top of app.py
+- [ ] Complete the register function to save user and return JSON response
+- [ ] Add Windows encoding fix to handle Unicode output
+- [ ] Add dummy implementations for load_food_items and get_food_recommendations
+- [ ] Test the app to ensure no errors

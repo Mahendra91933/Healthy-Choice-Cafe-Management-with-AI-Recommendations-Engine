@@ -1,13 +1,72 @@
+import os
+import sys
+import json
+
+# Set environment variable for UTF-8 encoding
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib import colors
-import os
 import random
 import time
 from datetime import datetime
+
+# Fix for Windows Unicode encoding issues
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
+
+# Data structures
+users = []
+login_history = []
+login_otp_store = {}
+guest_orders = []
+
+# Persistence functions
+DATA_FILE = 'app_data.json'
+
+def load_data():
+    global users, login_history, guest_orders
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            users = data.get('users', [])
+            login_history = data.get('login_history', [])
+            guest_orders = data.get('guest_orders', [])
+
+def save_data():
+    data = {
+        'users': users,
+        'login_history': login_history,
+        'guest_orders': guest_orders
+    }
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Load data on startup
+load_data()
+
+# Dummy functions
+def load_food_items():
+    # Dummy food items data
+    return [
+        {'id': 1, 'name': 'Burger', 'price': 100, 'image': 'burger.jpg', 'protein': 20, 'carbs': 30, 'fats': 15, 'calories': 400},
+        {'id': 2, 'name': 'Fries', 'price': 50, 'image': 'fries.jpg', 'protein': 5, 'carbs': 40, 'fats': 10, 'calories': 300},
+        # Add more items as needed
+    ]
+
+def get_food_recommendations(item_id):
+    # Dummy recommendations based on item_id
+    recommendations = [
+        {'id': 2, 'name': 'Fries', 'price': 50, 'image': 'fries.jpg'},
+        {'id': 3, 'name': 'Drink', 'price': 30, 'image': 'drink.jpg'},
+    ]
+    return recommendations
 
 
 app = Flask(__name__)
@@ -24,6 +83,26 @@ def register():
 
     if not name or not email or not password or not mobile:
         return jsonify({'error': 'Name, email, password, and mobile are required'}), 400
+
+    # Check if user already exists
+    existing_user = next((u for u in users if u['email'] == email), None)
+    if existing_user:
+        return jsonify({'error': 'User already exists'}), 400
+
+    # Create new user
+    new_user = {
+        'id': len(users) + 1,
+        'name': name,
+        'email': email,
+        'password': password,
+        'mobile': mobile,
+        'dob': None,
+        'gender': None
+    }
+    users.append(new_user)
+    save_data()
+
+    return jsonify({'success': True, 'message': 'User registered successfully', 'userId': new_user['id']})
 
 @app.route('/check-user', methods=['POST'])
 def check_user():
