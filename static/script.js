@@ -75,7 +75,11 @@ async function sendOtp(email) {
 
 // Existing function: registerUser
 async function registerUser(e) {
-  e.preventDefault();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  
   const name = document.getElementById('regName').value;
   const email = document.getElementById('regEmail').value;
   const password = document.getElementById('regPassword').value;
@@ -98,13 +102,14 @@ async function registerUser(e) {
 
     alert('Registration successful! Please login.');
 
-    // *** MODIFIED: Switch to Login form (slide back) ***
+    // Switch to Login form (slide back)
     showLoginPanel();
 
     // Optionally clear the register form
     document.getElementById('regName').value = '';
     document.getElementById('regMobile').value = '';
     document.getElementById('regEmail').value = '';
+    document.getElementById('regPassword').value = '';
 
   } catch (error) {
     alert('Error registering user: ' + error.message);
@@ -285,10 +290,17 @@ function showRegisterPanel(e) {
 // Function to show the Login form (Slides back to the right)
 function showLoginPanel(e) {
     if (e) e.preventDefault();
-    if (mainContainer) {
-        mainContainer.classList.remove('register-active');
-        document.title = 'Cafe Zone | Login'; // Change page title dynamically
+    
+    // Check if we're on login page with animation container, otherwise redirect
+    const mainContainer = document.querySelector('.login-main');
+    if (!mainContainer || !document.querySelector('.animation-container')) {
+        // We're on standalone register.html - redirect to login page instead of animating
+        window.location.href = '/login';
+        return;
     }
+    
+    mainContainer.classList.remove('register-active');
+    document.title = 'Cafe Zone | Login'; // Change page title dynamically
 }
 
 

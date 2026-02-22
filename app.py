@@ -27,11 +27,32 @@ if sys.platform == 'win32':
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
 
+import re
+
 # Data structures
 users = []
 login_history = []
 login_otp_store = {}
 guest_orders = []
+
+def validate_password(password):
+    """
+    Validate password meets the following requirements:
+    - Length 8-12 characters
+    - At least 1 uppercase letter
+    - At least 1 number
+    - At least 1 special character
+    """
+    if len(password) < 8 or len(password) > 12:
+        return False, 'Password must be 8-12 characters long'
+    if not re.search(r'[A-Z]', password):
+        return False, 'Password must contain at least 1 uppercase letter'
+    if not re.search(r'[0-9]', password):
+        return False, 'Password must contain at least 1 number'
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return False, 'Password must contain at least 1 special character'
+    
+    return True, 'Password is valid'
 
 # Persistence functions
 DATA_FILE = 'app_data.json'
@@ -40,6 +61,7 @@ def load_data():
     global users, login_history, guest_orders
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            
             data = json.load(f)
             users = data.get('users', [])
             login_history = data.get('login_history', [])
@@ -101,6 +123,11 @@ def register():
 
     if not name or not email or not password or not mobile:
         return jsonify({'error': 'Name, email, password, and mobile are required'}), 400
+
+    # Validate password strength
+    is_valid, message = validate_password(password)
+    if not is_valid:
+        return jsonify({'error': message}), 400
 
     # Check if user already exists
     existing_user = next((u for u in users if u['email'] == email), None)

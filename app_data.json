@@ -35,6 +35,24 @@
             "mobile": "+91 7302187457",
             "dob": null,
             "gender": null
+        },
+        {
+            "id": 5,
+            "name": "Niharika ",
+            "email": "niharikapandey114@gmail.com",
+            "password": "$2b$12$wEnYouFVyOrnr.MTO1ldXOZ85oWeOVBwBu1bobx4NiaC4CcT9Ab3C",
+            "mobile": "1234567890",
+            "dob": null,
+            "gender": null
+        },
+        {
+            "id": 6,
+            "name": "deepak",
+            "email": "deepakjakhmola@gmail.com",
+            "password": "$2b$12$zIA5Iq5GMzJnh4wK1O54Vuet/SMm1hMbvwJtiA5rBeRIdt45uc6vO",
+            "mobile": "9045602537",
+            "dob": null,
+            "gender": null
         }
     ],
     "login_history": [
