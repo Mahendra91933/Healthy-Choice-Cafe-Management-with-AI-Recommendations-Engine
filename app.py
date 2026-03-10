@@ -101,14 +101,25 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # Change to a secure key in production
 
-# Flask-Mail configuration
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'jakhmolaayush3@gmail.com'
-app.config['MAIL_PASSWORD'] = 'yzsfhhqraakovbjj'
+# Flask-Mail configuration - Using SSL on port 465 for better reliability with Gmail SMTP  
+# Note: If you have 2FA enabled on your Google account, generate an App Password  
+# Go to: Google Account > Security > App Passwords  
 
-mail = Mail(app)
+import smtplib  
+
+try:
+    # Use SSL on port 465 (more reliable than TLS on port 587)    
+    app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+    app.config['MAIL_PORT'] = 465
+    app.config['MAIL_USE_SSL'] = True
+    app.config['MAIL_USERNAME'] = 'jakhmolaayush3@gmail.com'
+    app.config['MAIL_PASSWORD'] = 'lhdtobarquconqsh'
+    app.config['MAIL_DEFAULT_SENDER'] = 'jakhmolaayush3@gmail.com'
+    
+    mail = Mail(app)    
+except Exception as e:
+      print(f"Warning during mail config:{e}")
+
 
 # Flask-Limiter configuration
 limiter = Limiter(get_remote_address, app=app)
