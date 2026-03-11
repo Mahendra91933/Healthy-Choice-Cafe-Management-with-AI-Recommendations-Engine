@@ -19,7 +19,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Fix for Windows Unicode encoding issues
 if sys.platform == 'win32':
@@ -28,12 +28,6 @@ if sys.platform == 'win32':
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
 
 import re
-
-# Data structures
-users = []
-login_history = []
-login_otp_store = {}
-guest_orders = []
 
 def validate_password(password):
     """
@@ -54,30 +48,7 @@ def validate_password(password):
     
     return True, 'Password is valid'
 
-# Persistence functions
-DATA_FILE = 'app_data.json'
 
-def load_data():
-    global users, login_history, guest_orders
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            
-            data = json.load(f)
-            users = data.get('users', [])
-            login_history = data.get('login_history', [])
-            guest_orders = data.get('guest_orders', [])
-
-def save_data():
-    data = {
-        'users': users,
-        'login_history': login_history,
-        'guest_orders': guest_orders
-    }
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-# Load data on startup
-load_data()
 
 # Dummy functions
 def load_food_items():
@@ -96,6 +67,18 @@ def get_food_recommendations(item_id):
     ]
     return recommendations
 
+
+# MySQL Database Connection
+import mysql.connector
+
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="ayush123", 
+    database="healthy_cafe_db"
+)
+
+cursor = db.cursor(dictionary=True)
 
 app = Flask(__name__)
 CORS(app)
@@ -127,156 +110,150 @@ limiter = Limiter(get_remote_address, app=app)
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
+
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
     mobile = data.get('mobile')
 
-    if not name or not email or not password or not mobile:
-        return jsonify({'error': 'Name, email, password, and mobile are required'}), 400
-
-    # Validate password strength
-    is_valid, message = validate_password(password)
-    if not is_valid:
-        return jsonify({'error': message}), 400
-
-    # Check if user already exists
-    existing_user = next((u for u in users if u['email'] == email), None)
-    if existing_user:
-        return jsonify({'error': 'User already exists'}), 400
-
-    # Hash the password using bcrypt
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    
-    # Create new user
-    new_user = {
-        'id': len(users) + 1,
-        'name': name,
-        'email': email,
-        'password': hashed_password.decode('utf-8'),
-        'mobile': mobile,
-        'dob': None,
-        'gender': None
-    }
-    users.append(new_user)
-    save_data()
 
-    return jsonify({'success': True, 'message': 'User registered successfully', 'userId': new_user['id']})
+    query = """
+    INSERT INTO users (name,email,mobile,password_hash,role)
+    VALUES (%s,%s,%s,%s,%s)
+    """
+
+    values = (name,email,mobile,hashed_password.decode('utf-8'),"user")
+
+    cursor.execute(query,values)
+    db.commit()
+
+    return jsonify({
+        "success":True,
+        "message":"User registered successfully"
+    })
 
 @app.route('/check-user', methods=['POST'])
 def check_user():
+
     data = request.get_json()
+
     email = data.get('email')
 
-    if not email:
-        return jsonify({'error': 'Email is required'}), 400
+    cursor.execute(
+        "SELECT id,name,email,mobile,dob,gender FROM users WHERE email=%s",
+        (email,)
+    )
 
-    user = next((u for u in users if u['email'] == email), None)
+    user = cursor.fetchone()
 
     if user:
-        user_data = {
-            'id': user['id'],
-            'name': user['name'],
-            'email': user['email'],
-            'dob': user['dob'],
-            'gender': user['gender']
-        }
-        return jsonify({'exists': True, 'user': user_data})
-    else:
-        return jsonify({'exists': False})
+        return jsonify({
+            "exists":True,
+            "user":user
+        })
+
+    return jsonify({"exists":False})
 
 @app.route('/update-profile', methods=['POST'])
 def update_profile():
+
     data = request.get_json()
-    mobile = data.get('mobile')
-    name = data.get('name')
-    dob = data.get('dob')
-    gender = data.get('gender')
 
-    if not mobile:
-        return jsonify({'error': 'Mobile number is required'}), 400
+    name = data.get("name")
+    mobile = data.get("mobile")
+    dob = data.get("dob")
+    gender = data.get("gender")
 
-    user = next((u for u in users if u['mobile'] == mobile), None)
+    query = """
+    UPDATE users
+    SET name=%s,dob=%s,gender=%s
+    WHERE mobile=%s
+    """
 
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    cursor.execute(query,(name,dob,gender,mobile))
+    db.commit()
 
-    # Update user fields
-    if name:
-        user['name'] = name
-    if dob:
-        user['dob'] = dob
-    if gender:
-        user['gender'] = gender
-
-    updated_user = {
-        'id': user['id'],
-        'name': user['name'],
-        'mobile': user['mobile'],
-        'email': user['email'],
-        'dob': user['dob'],
-        'gender': user['gender']
-    }
-
-    return jsonify({'success': True, 'message': 'Profile updated successfully', 'user': updated_user})
+    return jsonify({"success":True})
 
 @app.route('/login', methods=['POST'])
 def login():
+
     data = request.get_json()
+
     email = data.get('email')
     password = data.get('password')
 
-    if not email or not password:
-        return jsonify({'error': 'Email and password are required'}), 400
+    cursor.execute(
+        "SELECT * FROM users WHERE email=%s",
+        (email,)
+    )
 
-    user = next((u for u in users if u['email'] == email), None)
+    user = cursor.fetchone()
+
     if not user:
-        return jsonify({'error': 'User not registered'}), 404
+        return jsonify({"error":"User not found"}),404
 
-    # Verify password using bcrypt
-    if not bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
-        return jsonify({'error': 'Invalid password'}), 401
+    if not bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
+        return jsonify({"error":"Invalid password"}),401
 
-    user_id = user['id']
+    session["user_id"] = user["id"]
 
-    # Record login history
-    new_login_history = {
-        'id': len(login_history) + 1,
-        'user_id': user_id,
-        'login_time': datetime.now().isoformat()
-    }
-    login_history.append(new_login_history)
+    # login history insert
+    ip_address = request.remote_addr
 
-    # Store user name in session
-    session['user_name'] = user['name']
-    session['user_id'] = user_id
+    cursor.execute("""
+    INSERT INTO login_history (user_id, login_time, ip_address)
+    VALUES (%s,%s,%s)
+    """,(user["id"], datetime.now(), ip_address))
 
-    return jsonify({'success': True, 'message': 'Login successful', 'userId': user_id, 'userName': user['name']})
+    db.commit()
+
+    return jsonify({
+        "success":True,
+        "message":"Login successful",
+        "userId":user["id"]
+    })
 
 @app.route('/send-login-otp', methods=['POST'])
 def send_login_otp():
+
     data = request.get_json()
-    email = data.get('email')
+    email = data.get("email")
 
     if not email:
-        return jsonify({'error': 'Email is required'}), 400
+        return jsonify({"error": "Email required"}), 400
 
-    user = next((u for u in users if u['email'] == email), None)
+    # Find user
+    cursor.execute("SELECT id, name FROM users WHERE email=%s", (email,))
+    user = cursor.fetchone()
+
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({"error": "User not found"}), 404
 
-    otp = str(random.randint(100000, 999999))
-    otp_id = f"otp_{int(time.time())}_{random.randint(1000, 9999)}"
+    user_id = user["id"]
+    user_name = user.get("name", "User")
 
-    login_otp_store[otp_id] = {
-        'otp': otp,
-        'email': email,
-        'expiry': time.time() + 300,  # 5 minutes
-        'attempts': 0
-    }
+    # Delete any existing expired OTPs
+    cursor.execute("DELETE FROM login_otp WHERE user_id=%s AND expiry_time < NOW()", (user_id,))
+    db.commit()
 
+    # Generate OTP
+    otp = random.randint(100000, 999999)
+
+    expiry_time = datetime.now() + timedelta(minutes=5)
+
+    query = """
+    INSERT INTO login_otp (user_id, otp_code, expiry_time)
+    VALUES (%s,%s,%s)
+    """
+
+    cursor.execute(query, (user_id, otp, expiry_time))
+    db.commit()
+
+    # Send OTP via email
     msg = Message(
-        subject="HangOut Cafe Login Verification Code",
+        subject="Healthy Cafe Login Verification Code",
         sender=app.config['MAIL_USERNAME'],
         recipients=[email]
     )
@@ -339,10 +316,10 @@ body {{
 <div class="container">
 
 <div class="header">
-HangOut Cafe Security Verification
+Healthy Cafe Security Verification
 </div>
 
-<p>Hello,</p>
+<p>Hello {user_name},</p>
 
 <p>Your One Time Password (OTP) for login is:</p>
 
@@ -357,7 +334,7 @@ Do not share this code with anyone for security reasons.
 </p>
 
 <div class="footer">
-HangOut Cafe • Secure Login System
+Healthy Cafe • Secure Login System
 </div>
 
 </div>
@@ -372,50 +349,57 @@ HangOut Cafe • Secure Login System
         print(f"Error sending email: {e}")
         return jsonify({'error': 'Failed to send OTP email'}), 500
 
-    return jsonify({'message': 'OTP sent successfully', 'otpId': otp_id})
+    print("OTP:", otp)
+
+    return jsonify({
+        "success": True,
+        "otpId": user_id
+    })
 
 @app.route('/verify-login-otp', methods=['POST'])
 def verify_login_otp():
     data = request.get_json()
-    otp_id = data.get('otpId')
+    user_id = data.get('otpId')
     otp = data.get('otp')
 
-    if not otp_id or not otp:
-        return jsonify({'error': 'OTP ID and OTP are required'}), 400
+    if not user_id or not otp:
+        return jsonify({'error': 'User ID and OTP are required'}), 400
 
-    stored_otp = login_otp_store.get(otp_id)
+    # Get OTP from database
+    cursor.execute(
+        "SELECT * FROM login_otp WHERE user_id=%s AND otp_code=%s AND expiry_time > NOW()",
+        (user_id, otp)
+    )
+    stored_otp = cursor.fetchone()
 
     if not stored_otp:
-        return jsonify({'error': 'Invalid OTP ID'}), 400
+        return jsonify({'error': 'Invalid or expired OTP'}), 400
 
-    if time.time() > stored_otp['expiry']:
-        del login_otp_store[otp_id]
-        return jsonify({'error': 'OTP expired'}), 400
+    # Get user from database
+    cursor.execute("SELECT * FROM users WHERE id=%s", (user_id,))
+    user = cursor.fetchone()
 
-    if stored_otp['otp'] != otp:
-        return jsonify({'error': 'Invalid OTP'}), 400
-
-    user = next((u for u in users if u['email'] == stored_otp['email']), None)
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    user_id = user['id']
+    # Delete the OTP after successful verification
+    cursor.execute("DELETE FROM login_otp WHERE user_id=%s", (user_id,))
+    db.commit()
 
-    # Record login history
-    new_login_history = {
-        'id': len(login_history) + 1,
-        'user_id': user_id,
-        'login_time': datetime.now().isoformat()
-    }
-    login_history.append(new_login_history)
+    # Insert login history
+    ip_address = request.remote_addr
+    query = """
+    INSERT INTO login_history (user_id, login_time, ip_address)
+    VALUES (%s,%s,%s)
+    """
+    cursor.execute(query, (user["id"], datetime.now(), ip_address))
+    db.commit()
 
-    # Store user name in session
+    # Store user info in session
+    session['user_id'] = user['id']
     session['user_name'] = user['name']
-    session['user_id'] = user_id
 
-    del login_otp_store[otp_id]
-
-    return jsonify({'success': True, 'message': 'Login successful', 'userId': user_id})
+    return jsonify({'success': True, 'message': 'Login successful', 'userId': user['id']})
 
 @app.route('/login-count', methods=['POST'])
 def login_count():
@@ -835,6 +819,35 @@ def cafeteria():
     items = load_food_items()
     user_name = session.get('user_name', 'Guest')
     return render_template('cafeteria.html', items=items, user_name=user_name)
+
+# Admin Routes
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    return render_template("admin/dashboard.html")
+
+@app.route("/admin/users")
+def admin_users():
+    return render_template("admin/users.html")
+
+@app.route("/admin/menu")
+def admin_menu():
+    return render_template("admin/menu.html")
+
+@app.route("/admin/inventory")
+def admin_inventory():
+    return render_template("admin/inventory.html")
+
+@app.route("/admin/orders")
+def admin_orders():
+    return render_template("admin/orders.html")
+
+@app.route("/admin/security-logs")
+def admin_logs():
+    return render_template("admin/security_logs.html")
+
+@app.route("/admin/settings")
+def admin_settings():
+    return render_template("admin/settings.html")
 
 @app.errorhandler(404)
 def page_not_found(e):
