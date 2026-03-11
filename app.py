@@ -903,29 +903,40 @@ def cafeteria():
     user_name = session.get('user_name', 'Guest')
     return render_template('cafeteria.html', items=items, user_name=user_name)
 
+def admin_required(f):
+    """Decorator to check if admin is logged in"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "admin_id" not in session:
+            return render_template("admin/login.html")
+        return f(*args, **kwargs)
+    return decorated_function
+
 # Admin Routes
 @app.route("/admin/dashboard")
+@admin_required
 def admin_dashboard():
     return render_template("admin/dashboard.html")
 
 @app.route("/admin/users")
+@admin_required
 def admin_users():
     return render_template("admin/users.html")
 
 @app.route("/admin/menu")
+@admin_required
 def admin_menu():
     return render_template("admin/menu.html")
 
 @app.route("/admin/inventory")
+@admin_required
 def admin_inventory():
     return render_template("admin/inventory.html")
 
 @app.route("/admin/orders")
+@admin_required
 def admin_orders():
-
-    if "admin_id" not in session:
-        return jsonify({"error":"Unauthorized"}),403
-
     cursor.execute("""
     SELECT orders.*,users.name
     FROM orders
@@ -933,16 +944,32 @@ def admin_orders():
     """)
 
     orders = cursor.fetchall()
-
     return jsonify(orders)
 
 @app.route("/admin/security-logs")
+@admin_required
 def admin_logs():
     return render_template("admin/security_logs.html")
 
 @app.route("/admin/settings")
+@admin_required
 def admin_settings():
     return render_template("admin/settings.html")
+
+@app.route("/admin")
+def admin_index():
+    if "admin_id" in session:
+        return render_template("admin/dashboard.html")
+    return render_template("admin/login.html")
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin_id", None)
+    return render_template("admin/login.html")
+
+@app.route("/admin/login")
+def admin_login_page():
+    return render_template("admin/login.html")
 
 @app.errorhandler(404)
 def page_not_found(e):
