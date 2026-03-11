@@ -678,20 +678,43 @@ function createNutritionChart(canvasId, protein, carbs, fats, calories) {
     });
 }
 
-// Function to load food items with robust fallbacks and display in menu-grid
-async function loadFoodItems() {
+// Function to load food items from database menu-items API (primary) with fallback
+async function loadFoodItems(){
+    try {
+        // Try to fetch from menu-items API first (database)
+        const response = await fetch("http://127.0.0.1:3000/menu-items")
+        if (response.ok) {
+            const items = await response.json()
+            const menuGrid = document.querySelector(".menu-grid")
+            if (!menuGrid) return;
+            menuGrid.innerHTML = ""
+            items.forEach(item => {
+                menuGrid.innerHTML += `
+                <div class="menu-item menu-card">
+                    <div class="image-block">
+                        <img src="${item.image_url}" class="item-image">
+                    </div>
+                    <div class="item-details">
+                        <h3 class="item-title">${item.name}</h3>
+                        <p class="item-price">₹${item.price}</p>
+                        <button class="add-to-cart-btn" onclick="addToCart(${item.id},'${item.name}',${item.price})">Add to Cart</button>
+                    </div>
+                </div>
+                `
+            })
+            return;
+        }
+    } catch (_) { /* ignore and fall through to fallback */ }
+    
+    // Fallback: Try food-items API
     try {
         let foodItems = [];
-
-        // Backend first (original behavior)
-        try {
-            const response = await fetch('http://127.0.0.1:3000/food-items');
-            if (response.ok) {
-                foodItems = await response.json();
-                try { localStorage.setItem('cachedFoodItems', JSON.stringify(foodItems)); } catch (_) {}
-            }
-        } catch (_) { /* ignore */ }
-
+        const response = await fetch('http://127.0.0.1:3000/food-items');
+        if (response.ok) {
+            foodItems = await response.json();
+            try { localStorage.setItem('cachedFoodItems', JSON.stringify(foodItems)); } catch (_) {}
+        }
+        
         // CSV fallback
         if (!foodItems || foodItems.length === 0) {
             const csvItems = await loadItemsFromCsvPaths(['FoodItem_export_clean.csv', 'fooditem_export.csv','item_export.csv']);
@@ -781,7 +804,6 @@ async function loadFoodItems() {
         updateCartCount();
     } catch (error) {
         console.error('Error loading food items (handled gracefully):', error);
-        // Do not alert; page already rendered with fallbacks above
     }
 }
 

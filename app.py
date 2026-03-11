@@ -441,6 +441,12 @@ def get_food_items():
     items = load_food_items()
     return jsonify(items)
 
+@app.route('/menu-items', methods=['GET'])
+def get_menu_items():
+    cursor.execute("SELECT * FROM menu_items")
+    items = cursor.fetchall()
+    return jsonify(items)
+
 @app.route('/recommendations/<item_id>', methods=['GET'])
 def get_recommendations(item_id):
     try:
