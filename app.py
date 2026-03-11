@@ -592,6 +592,55 @@ def add_to_cart():
 
     return jsonify({'success': True, 'message': 'Item added to cart', 'cart': cart})
 
+@app.route('/create-order', methods=['POST'])
+def create_order():
+    data = request.get_json()
+
+    user_id = data.get("user_id")
+    cart = data.get("cart")
+
+    if not cart:
+        return jsonify({"error":"Cart empty"}),400
+
+    total_amount = sum(item["price"] * item["quantity"] for item in cart)
+
+    # create order
+    cursor.execute("""
+    INSERT INTO orders (user_id,total_amount,order_status,created_at)
+    VALUES (%s,%s,%s,NOW())
+    """,(user_id,total_amount,"pending"))
+
+    db.commit()
+
+    order_id = cursor.lastrowid
+
+    # insert order items
+    for item in cart:
+        cursor.execute("""
+        INSERT INTO order_items (order_id,menu_item_id,quantity,price)
+        VALUES (%s,%s,%s,%s)
+        """,(order_id,item["id"],item["quantity"],item["price"]))
+
+    db.commit()
+
+    return jsonify({
+        "success":True,
+        "order_id":order_id
+    })
+
+@app.route('/user-orders/<int:user_id>')
+def get_user_orders(user_id):
+
+    cursor.execute("""
+    SELECT * FROM orders
+    WHERE user_id=%s
+    ORDER BY created_at DESC
+    """,(user_id,))
+
+    orders = cursor.fetchall()
+
+    return jsonify(orders)
+
 @app.route('/save-order', methods=['POST'])
 def save_order():
     data = request.get_json()

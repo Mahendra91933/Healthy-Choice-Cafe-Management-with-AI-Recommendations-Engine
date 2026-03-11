@@ -1598,6 +1598,11 @@ document.addEventListener('DOMContentLoaded', () => {
         loadPaymentPage();
     }
 
+    // Load orders page
+    if (window.location.pathname.includes('/orders')) {
+        loadOrders();
+    }
+
     // Load cart count on all pages
     loadCartCount();
 
@@ -1780,6 +1785,92 @@ function toggleEditMode() {
         editBtn.textContent = 'Cancel';
         form.style.display = 'block';
     }
+}
+
+// Function to place order using the new create-order API
+async function placeOrder() {
+    const cart = JSON.parse(localStorage.getItem("cart")) || [];
+    const user = JSON.parse(localStorage.getItem("user"));
+
+    if (!user || !user.id) {
+        alert('Please login to place an order');
+        window.location.href = '/login';
+        return;
+    }
+
+    if (cart.length === 0) {
+        alert('Your cart is empty!');
+        return;
+    }
+
+    const response = await fetch("http://127.0.0.1:3000/create-order", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            user_id: user.id,
+            cart: cart
+        })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+        alert("Order placed successfully!");
+        localStorage.removeItem("cart");
+        window.location.href = "/orders";
+    } else {
+        alert("Error: " + (data.error || "Failed to place order"));
+    }
+}
+
+// Function to load user orders from database
+async function loadUserOrders() {
+    const user = JSON.parse(localStorage.getItem("user"));
+    
+    if (!user || !user.id) {
+        console.log("User not logged in, skipping database orders fetch");
+        return;
+    }
+
+    try {
+        const response = await fetch(`/user-orders/${user.id}`);
+        if (response.ok) {
+            const dbOrders = await response.json();
+            console.log("Orders from database:", dbOrders);
+            // Store in localStorage for display
+            if (dbOrders && dbOrders.length > 0) {
+                const existingOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+                // Merge with existing local orders (avoid duplicates)
+                const mergedOrders = [...dbOrders.map(o => ({
+                    id: o.id,
+                    date: o.created_at,
+                    status: o.order_status,
+                    paymentMethod: 'Online',
+                    items: [], // Items would need separate fetch
+                    metrics: { protein: 0, carbs: 0, fats: 0, calories: 0 },
+                    total: parseFloat(o.total_amount)
+                })), ...existingOrders];
+                localStorage.setItem('orders', JSON.stringify(mergedOrders));
+            }
+        }
+    } catch (error) {
+        console.error("Error fetching user orders from database:", error);
+    }
+}
+
+// Function to load orders for orders page
+async function loadOrders() {
+    const user = JSON.parse(localStorage.getItem("user"));
+
+    const response = await fetch(
+        "http://127.0.0.1:3000/user-orders/" + user.id
+    );
+
+    const orders = await response.json();
+
+    console.log(orders);
 }
 
 
