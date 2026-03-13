@@ -164,7 +164,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!menuGrid) return;
             menuGrid.innerHTML = '<p style="padding:1rem;color:#6b7280;">Loading menu items…</p>';
             try {
-                const response = await fetch("/menu-items");
+                const response = await fetch("/admin/menu-items");
                 if (!response.ok) {
                     throw new Error("Failed to load menu items");
                 }

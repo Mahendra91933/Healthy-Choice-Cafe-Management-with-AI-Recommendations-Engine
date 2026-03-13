@@ -565,7 +565,7 @@ def get_food_items():
 
 @app.route('/menu-items', methods=['GET'])
 def get_menu_items():
-    cursor.execute("SELECT * FROM menu_items")
+    cursor.execute("SELECT * FROM menu_items WHERE is_active = 1 ORDER BY id DESC")
     items = cursor.fetchall()
     return jsonify(items)
 

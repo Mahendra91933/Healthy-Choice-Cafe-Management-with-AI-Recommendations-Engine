@@ -1,12 +1,9 @@
-# Admin Panel Enhancement TODO
+# Task: Fix menu_items showing inactive items (is_active=0) in user UI
 
-## Current Status
-- [x] Login always shows form
-- [ ] Menu management CRUD UI
-- [ ] is_active toggle
-- [ ] Global meal mode settings
-- [ ] Filtered cafeteria items
+## Plan Steps:
+- [ ] 1. Update app.py /menu-items endpoint to filter WHERE is_active = 1
+- [ ] 2. Test the endpoint
+- [ ] 3. Verify cafeteria.html shows only active items
+- [ ] 4. Mark complete
 
-## Steps
-1. [ ] Update /menu-items filtering
-2. [ ] templates
+Current: Step 1
