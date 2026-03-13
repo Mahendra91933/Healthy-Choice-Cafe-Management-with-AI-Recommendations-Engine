@@ -81,55 +81,6 @@ db = mysql.connector.connect(
 
 cursor = db.cursor(dictionary=True)
 
-# -----------------------------
-# Database table initialization
-# -----------------------------
-def ensure_tables():
-    # menu_items: all cafeteria items controlled by admin
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS menu_items (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            price DECIMAL(10,2) NOT NULL DEFAULT 0,
-            image_url TEXT,
-            protein DECIMAL(10,2) DEFAULT 0,
-            carbs DECIMAL(10,2) DEFAULT 0,
-            fats DECIMAL(10,2) DEFAULT 0,
-            calories DECIMAL(10,2) DEFAULT 0,
-            category VARCHAR(32) NOT NULL DEFAULT 'lunch',
-            diet_type VARCHAR(32) NOT NULL DEFAULT 'diet',
-            is_active TINYINT(1) NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    # system_settings: key/value global settings (ex: meal_mode)
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS system_settings (
-            setting_key VARCHAR(128) PRIMARY KEY,
-            setting_value VARCHAR(255) NOT NULL
-        )
-        """
-    )
-
-    # Ensure default meal_mode exists
-    cursor.execute(
-        """
-        INSERT INTO system_settings (setting_key, setting_value)
-        VALUES ('meal_mode', 'all')
-        ON DUPLICATE KEY UPDATE setting_key = setting_key
-        """
-    )
-
-    db.commit()
-
-
-ensure_tables()
-
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # Change to a secure key in production
@@ -156,16 +107,6 @@ except Exception as e:
 
 
 limiter = Limiter(get_remote_address, app=app)
-
-def admin_required(f):
-    """Decorator to check if admin is logged in"""
-    from functools import wraps
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "admin_id" not in session:
-            return render_template("admin/login.html")
-        return f(*args, **kwargs)
-    return decorated_function
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -586,272 +527,6 @@ def get_menu_items():
     cursor.execute("SELECT * FROM menu_items")
     items = cursor.fetchall()
     return jsonify(items)
-
-
-# -----------------------------
-# User APIs (active menu + AI)
-# -----------------------------
-
-def get_meal_mode():
-    cursor.execute(
-        "SELECT setting_value FROM system_settings WHERE setting_key='meal_mode' LIMIT 1"
-    )
-    row = cursor.fetchone()
-    return (row["setting_value"] if row else "all") or "all"
-
-
-@app.route("/api/menu-items", methods=["GET"])
-def api_menu_items():
-    """
-    Returns items for user cafeteria interface.
-    Filters by:
-      - is_active=1
-      - category based on system_settings.meal_mode (unless all)
-    """
-    meal_mode = get_meal_mode().lower()
-
-    params = []
-    where = ["is_active = 1"]
-    if meal_mode and meal_mode != "all":
-        where.append("LOWER(category) = %s")
-        params.append(meal_mode)
-
-    query = f"""
-        SELECT id, name, price, image_url, protein, carbs, fats, calories, category, diet_type, is_active
-        FROM menu_items
-        WHERE {' AND '.join(where)}
-        ORDER BY id DESC
-    """
-    cursor.execute(query, tuple(params))
-    items = cursor.fetchall()
-
-    return jsonify({"meal_mode": meal_mode, "items": items})
-
-
-def _cosine_similarity(a, b):
-    # safe cosine similarity without requiring sklearn
-    import math
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
-
-
-@app.route("/api/ai-recommendations", methods=["GET"])
-def api_ai_recommendations():
-    """
-    Content-based recommendations using nutrition vectors and cosine similarity.
-    Query params:
-      - diet_type: 'diet'|'non-diet' (optional)
-      - category: 'breakfast'|'lunch'|'dinner'|'snacks' (optional)
-      - limit: int (optional, default 6)
-    """
-    diet_type = (request.args.get("diet_type") or "").strip().lower()
-    category = (request.args.get("category") or "").strip().lower()
-    limit = int(request.args.get("limit") or 6)
-    limit = max(1, min(limit, 20))
-
-    meal_mode = get_meal_mode().lower()
-    effective_category = category or (meal_mode if meal_mode != "all" else "")
-
-    params = []
-    where = ["is_active = 1"]
-    if effective_category:
-        where.append("LOWER(category) = %s")
-        params.append(effective_category)
-    if diet_type in ("diet", "non-diet"):
-        where.append("LOWER(diet_type) = %s")
-        params.append(diet_type)
-
-    cursor.execute(
-        f"""
-        SELECT id, name, price, image_url, protein, carbs, fats, calories, category, diet_type
-        FROM menu_items
-        WHERE {' AND '.join(where)}
-        """,
-        tuple(params),
-    )
-    items = cursor.fetchall()
-
-    if not items:
-        return jsonify(
-            {
-                "meal_mode": meal_mode,
-                "category": effective_category or None,
-                "diet_type": diet_type or None,
-                "items": [],
-            }
-        )
-
-    # Build nutrition vectors
-    vectors = []
-    for it in items:
-        vectors.append(
-            [
-                float(it.get("protein") or 0),
-                float(it.get("carbs") or 0),
-                float(it.get("fats") or 0),
-                float(it.get("calories") or 0),
-            ]
-        )
-
-    # Preference vector: average of available items (works without user history)
-    avg = [sum(col) / len(vectors) for col in zip(*vectors)]
-
-    scored = []
-    for it, vec in zip(items, vectors):
-        scored.append((it, _cosine_similarity(vec, avg)))
-
-    scored.sort(key=lambda t: t[1], reverse=True)
-    recommended = [it for it, _ in scored[:limit]]
-
-    return jsonify(
-        {
-            "meal_mode": meal_mode,
-            "category": effective_category or None,
-            "diet_type": diet_type or None,
-            "items": recommended,
-        }
-    )
-
-
-# -----------------------------
-# Admin APIs (menu + settings)
-# -----------------------------
-
-@app.route("/admin/api/menu-items", methods=["GET"])
-@admin_required
-def admin_api_menu_items():
-    cursor.execute(
-        """
-        SELECT id, name, price, image_url, protein, carbs, fats, calories, category, diet_type, is_active
-        FROM menu_items
-        ORDER BY id DESC
-        """
-    )
-    items = cursor.fetchall()
-    return jsonify({"items": items})
-
-
-@app.route("/admin/toggle-item", methods=["POST"])
-@admin_required
-def admin_toggle_item():
-    data = request.get_json() or {}
-    item_id = data.get("id")
-    is_active = data.get("is_active")
-
-    if item_id is None or is_active is None:
-        return jsonify({"error": "id and is_active are required"}), 400
-
-    cursor.execute(
-        "UPDATE menu_items SET is_active=%s WHERE id=%s",
-        (1 if bool(is_active) else 0, item_id),
-    )
-    db.commit()
-    return jsonify({"success": True})
-
-
-@app.route("/admin/menu-item", methods=["POST"])
-@admin_required
-def admin_create_menu_item():
-    data = request.get_json() or {}
-    required = ["name", "price", "category", "diet_type"]
-    for k in required:
-        if data.get(k) in (None, ""):
-            return jsonify({"error": f"{k} is required"}), 400
-
-    cursor.execute(
-        """
-        INSERT INTO menu_items
-            (name, price, image_url, protein, carbs, fats, calories, category, diet_type, is_active)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """,
-        (
-            data.get("name"),
-            data.get("price"),
-            data.get("image_url"),
-            data.get("protein") or 0,
-            data.get("carbs") or 0,
-            data.get("fats") or 0,
-            data.get("calories") or 0,
-            data.get("category"),
-            data.get("diet_type"),
-            1 if bool(data.get("is_active")) else 0,
-        ),
-    )
-    db.commit()
-    return jsonify({"success": True, "id": cursor.lastrowid})
-
-
-@app.route("/admin/menu-item/<int:item_id>", methods=["PUT"])
-@admin_required
-def admin_update_menu_item(item_id):
-    data = request.get_json() or {}
-    cursor.execute(
-        """
-        UPDATE menu_items
-        SET name=%s,
-            price=%s,
-            image_url=%s,
-            protein=%s,
-            carbs=%s,
-            fats=%s,
-            calories=%s,
-            category=%s,
-            diet_type=%s
-        WHERE id=%s
-        """,
-        (
-            data.get("name"),
-            data.get("price"),
-            data.get("image_url"),
-            data.get("protein") or 0,
-            data.get("carbs") or 0,
-            data.get("fats") or 0,
-            data.get("calories") or 0,
-            data.get("category"),
-            data.get("diet_type"),
-            item_id,
-        ),
-    )
-    db.commit()
-    return jsonify({"success": True})
-
-
-@app.route("/admin/menu-item/<int:item_id>", methods=["DELETE"])
-@admin_required
-def admin_delete_menu_item(item_id):
-    cursor.execute("DELETE FROM menu_items WHERE id=%s", (item_id,))
-    db.commit()
-    return jsonify({"success": True})
-
-
-@app.route("/admin/set-meal-mode", methods=["POST"])
-@admin_required
-def admin_set_meal_mode():
-    data = request.get_json() or {}
-    mode = (data.get("meal_mode") or "").strip().lower()
-    if mode not in ("all", "breakfast", "lunch", "dinner", "snacks"):
-        return jsonify({"error": "Invalid meal_mode"}), 400
-
-    cursor.execute(
-        """
-        INSERT INTO system_settings (setting_key, setting_value)
-        VALUES ('meal_mode', %s)
-        ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)
-        """,
-        (mode,),
-    )
-    db.commit()
-    return jsonify({"success": True, "meal_mode": mode})
-
-
-@app.route("/admin/api/settings", methods=["GET"])
-@admin_required
-def admin_api_settings():
-    return jsonify({"meal_mode": get_meal_mode().lower()})
 
 @app.route('/recommendations/<item_id>', methods=['GET'])
 def get_recommendations(item_id):
@@ -1286,6 +961,10 @@ def get_profile_data():
         'avgCarbs': round(avg_carbs, 1),
         'avgFats': round(avg_fats, 1),
         'avgCalories': round(avg_calories),
+        'totalProtein': round(total_protein, 1) if total_orders > 0 else 0,
+        'totalCarbs': round(total_carbs, 1) if total_orders > 0 else 0,
+        'totalFats': round(total_fats, 1) if total_orders > 0 else 0,
+        'totalCalories': round(total_calories) if total_orders > 0 else 0,
         'preference': preference
     })
 
@@ -1300,6 +979,16 @@ def cafeteria():
     user_name = session.get('user_name', 'Guest')
     return render_template('cafeteria.html', items=items, user_name=user_name)
 
+def admin_required(f):
+    """Decorator to check if admin is logged in"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "admin_id" not in session:
+            return render_template("admin/login.html")
+        return f(*args, **kwargs)
+    return decorated_function
+
 # Admin Routes
 @app.route("/admin/dashboard")
 @admin_required
@@ -1308,8 +997,17 @@ def admin_dashboard():
     cursor.execute("SELECT COUNT(*) AS total_users FROM users")
     users_row = cursor.fetchone() or {"total_users": 0}
 
-    cursor.execute("SELECT COUNT(*) AS total_orders, COALESCE(SUM(total_amount), 0) AS total_revenue FROM orders")
-    orders_row = cursor.fetchone() or {"total_orders": 0, "total_revenue": 0}
+    cursor.execute("SELECT COUNT(*) AS total_orders FROM orders WHERE order_status='confirmed'")
+    orders_row = cursor.fetchone() or {"total_orders": 0}
+
+    # Revenue = subtotal + GST (18%) + fixed delivery per completed order
+    cursor.execute("""
+        SELECT
+            COALESCE(SUM(total_amount * 1.18 + 50), 0) AS total_revenue
+        FROM orders
+        WHERE order_status='confirmed'
+    """)
+    revenue_row = cursor.fetchone() or {"total_revenue": 0}
 
     # Inventory low stock (assumes inventory table with quantity & threshold columns)
     low_stock_items = []
@@ -1331,7 +1029,7 @@ def admin_dashboard():
         "admin/dashboard.html",
         total_users=users_row["total_users"],
         total_orders=orders_row["total_orders"],
-        total_revenue=orders_row["total_revenue"],
+        total_revenue=revenue_row["total_revenue"],
         low_stock_items=low_stock_items,
         low_stock_items_count=low_stock_count,
     )
@@ -1376,13 +1074,35 @@ def admin_inventory():
 @admin_required
 def admin_orders():
     cursor.execute("""
-    SELECT orders.*,users.name
+    SELECT orders.*, users.name
     FROM orders
-    JOIN users ON users.id=orders.user_id
+    JOIN users ON users.id = orders.user_id
+    ORDER BY orders.created_at DESC
     """)
 
     orders = cursor.fetchall()
     return render_template("admin/orders.html", orders=orders)
+
+
+@app.route("/admin/orders/<int:order_id>/action", methods=["POST"])
+@admin_required
+def admin_order_action(order_id):
+    action = request.form.get("action")
+    if action == "confirm":
+        new_status = "confirmed"
+    elif action == "cancel":
+        new_status = "cancelled"
+    else:
+        return jsonify({"error": "Invalid action"}), 400
+
+    cursor.execute(
+        "UPDATE orders SET order_status=%s WHERE id=%s",
+        (new_status, order_id),
+    )
+    db.commit()
+
+    # For now redirect back to orders page; frontend uses full page navigation
+    return render_template("admin/orders.html")
 
 @app.route("/admin/security-logs")
 @admin_required

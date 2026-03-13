@@ -116,17 +116,48 @@
                                 <tr>
                                     <th scope="col">Order ID</th>
                                     <th scope="col">Customer</th>
-                                    <th scope="col">Items</th>
                                     <th scope="col">Total</th>
                                     <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="ordersTable">
-                                <tr class="placeholder-row">
-                                    <td colspan="5">
-                                        Orders will appear here once loaded.
-                                    </td>
-                                </tr>
+                                {% if orders %}
+                                    {% for order in orders %}
+                                        <tr>
+                                            <td>#{{ order.id }}</td>
+                                            <td>{{ order.name }}</td>
+                                            <td>₹{{ "%.2f"|format(order.total_amount) }}</td>
+                                            <td>
+                                                <span class="status-badge {{ order.order_status|lower }}">
+                                                    {{ order.order_status|capitalize }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <form method="POST" action="/admin/orders/{{ order.id }}/action" style="display:inline;">
+                                                    <input type="hidden" name="action" value="confirm">
+                                                    <button type="submit" class="btn btn-text"
+                                                            {% if order.order_status == 'confirmed' %}disabled{% endif %}>
+                                                        Confirm
+                                                    </button>
+                                                </form>
+                                                <form method="POST" action="/admin/orders/{{ order.id }}/action" style="display:inline;margin-left:4px;">
+                                                    <input type="hidden" name="action" value="cancel">
+                                                    <button type="submit" class="btn btn-text"
+                                                            {% if order.order_status == 'cancelled' %}disabled{% endif %}>
+                                                        Cancel
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr class="placeholder-row">
+                                        <td colspan="5">
+                                            No orders found.
+                                        </td>
+                                    </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>

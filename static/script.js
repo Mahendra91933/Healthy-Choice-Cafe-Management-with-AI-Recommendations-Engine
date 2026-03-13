@@ -141,12 +141,12 @@ async function loadProfile() {
 
     try {
         // Fetch latest user data from server
-        const response = await fetch('/check-user', {
+        const response = await fetch('http://127.0.0.1:3000/check-user', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ email: localUser.email })
+            body: JSON.stringify({ mobile: localUser.mobile })
         });
 
         if (!response.ok) {
@@ -493,7 +493,7 @@ async function verifyOtp() {
     if (data.success) {
       // Fetch user data after successful login
       const email = document.getElementById('loginEmail').value;
-      const checkResponse = await fetch('/check-user', {
+      const checkResponse = await fetch('http://127.0.0.1:3000/check-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -687,41 +687,26 @@ function createNutritionChart(canvasId, protein, carbs, fats, calories) {
     });
 }
 
-// Function to load food items from database (primary) with fallback
+// Function to load food items from database menu-items API (primary) with fallback
 async function loadFoodItems(){
     try {
-        // NEW: Fetch from user-facing filtered API (active items + admin meal mode)
-        const response = await fetch("/api/menu-items");
+        // Try to fetch from menu-items API first (database)
+        const response = await fetch("http://127.0.0.1:3000/menu-items")
         if (response.ok) {
-            const payload = await response.json();
-            let items = payload.items || [];
+            const items = await response.json()
             const menuGrid = document.querySelector(".menu-grid")
             if (!menuGrid) return;
             menuGrid.innerHTML = ""
-            // Optional client-side diet filter chips (diet/non-diet)
-            const pref = localStorage.getItem("dietPreference");
-            if (pref === "diet" || pref === "non-diet") {
-                items = items.filter((it) => String(it.diet_type || "").toLowerCase() === pref);
-            }
-
             items.forEach(item => {
                 menuGrid.innerHTML += `
                 <div class="menu-item menu-card">
                     <div class="image-block">
-                        <img src="${item.image_url || '/static/images/default-food.jpg'}" class="item-image">
+                        <img src="${item.image_url}" class="item-image">
                     </div>
                     <div class="item-details">
                         <h3 class="item-title">${item.name}</h3>
                         <p class="item-price">₹${item.price}</p>
-                        <div class="nutrition-info" style="margin:10px 0;">
-                            <div class="nutrition-values">
-                                <span class="nutrition-item">Protein: ${item.protein || 0}g</span>
-                                <span class="nutrition-item">Carbs: ${item.carbs || 0}g</span>
-                                <span class="nutrition-item">Fats: ${item.fats || 0}g</span>
-                                <span class="nutrition-item">Calories: ${item.calories || 0}</span>
-                            </div>
-                        </div>
-                        <button class="add-to-cart-btn" onclick="showAddToCartConfirmation('${item.id}', '${item.name}', '${item.price}', '${item.image_url || ''}', '${item.protein || 0}', '${item.carbs || 0}', '${item.fats || 0}', '${item.calories || 0}')">Add to Cart</button>
+                        <button class="add-to-cart-btn" onclick="addToCart(${item.id},'${item.name}',${item.price})">Add to Cart</button>
                     </div>
                 </div>
                 `
@@ -885,11 +870,15 @@ function loadCartPage() {
         return acc;
     }, { protein: 0, carbs: 0, fats: 0, calories: 0 });
 
+    const deliveryFee = 50;
+    const finalTotal = subTotal + gst + deliveryFee;
+
     cartSummary.innerHTML = `
         <h3>Order Summary</h3>
         <div class="summary-row"><span>Subtotal</span><span>₹${subTotal.toFixed(2)}</span></div>
         <div class="summary-row"><span>GST (18%)</span><span>₹${gst.toFixed(2)}</span></div>
-        <div class="summary-row total"><span>Total</span><span>₹${grandTotal.toFixed(2)}</span></div>
+        <div class="summary-row"><span>Delivery Fee</span><span>₹${deliveryFee.toFixed(2)}</span></div>
+        <div class="summary-row total"><span>Final Amount</span><span>₹${finalTotal.toFixed(2)}</span></div>
         <div class="nutrition-summary">
             <h4>Nutritional Summary</h4>
             <div class="nutrition-row"><span>Protein</span><span>${nutritionTotals.protein.toFixed(1)}g</span></div>
@@ -897,6 +886,7 @@ function loadCartPage() {
             <div class="nutrition-row"><span>Fats</span><span>${nutritionTotals.fats.toFixed(1)}g</span></div>
             <div class="nutrition-row"><span>Calories</span><span>${Math.round(nutritionTotals.calories)}</span></div>
         </div>
+        <button class="checkout-btn" style="margin-bottom:10px;" onclick="placeOrder()">Place Order</button>
         <button class="checkout-btn" onclick="proceedToPayment()">Proceed to Payment</button>
         <div style="font-size:12px;color:#777;margin-top:6px;">Payment will be processed automatically • Secure checkout</div>
     `;
@@ -979,11 +969,44 @@ function showProcessingOverlay() {
 }
 
 function proceedToPayment() {
-    const hide = showProcessingOverlay();
-    setTimeout(() => {
-        hide && hide();
-        window.location.href = '/payment';
-    }, 1600);
+    const user = JSON.parse(localStorage.getItem('user'));
+    if (!user || !user.id) {
+        alert('Please login to continue to payment.');
+        window.location.href = '/login';
+        return;
+    }
+
+    // Ensure latest order is confirmed by admin before allowing payment
+    fetch(`http://127.0.0.1:3000/user-orders/${user.id}`)
+        .then(resp => resp.ok ? resp.json() : [])
+        .then(orders => {
+            if (!orders || !orders.length) {
+                alert('You have no orders to pay for. Please place an order first.');
+                return;
+            }
+
+            const latest = orders[0];
+            if (latest.order_status === 'cancelled') {
+                alert('Your latest order was cancelled by the admin. Please place a new order.');
+                return;
+            }
+
+            if (latest.order_status !== 'confirmed') {
+                alert('Your latest order is not yet confirmed by the admin. Please wait for confirmation before paying.');
+                return;
+            }
+
+            localStorage.setItem('latestOrderId', latest.id);
+
+            const hide = showProcessingOverlay();
+            setTimeout(() => {
+                hide && hide();
+                window.location.href = '/payment';
+            }, 1600);
+        })
+        .catch(() => {
+            alert('Unable to check order status. Please try again.');
+        });
 }
 
 // Function to load payment page
@@ -1008,10 +1031,10 @@ function loadPaymentPage() {
         guestDetails.style.display = 'none';
     }
 
-    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
     const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const gst = totalPrice * 0.18;
     const deliveryFee = 50;
-    const grandTotal = totalPrice + deliveryFee;
+    const grandTotal = totalPrice + gst + deliveryFee;
 
     orderSummary.innerHTML = `
         <h3>Order Summary</h3>
@@ -1029,11 +1052,15 @@ function loadPaymentPage() {
                 <span>₹${totalPrice.toFixed(2)}</span>
             </div>
             <div class="summary-row">
+                <span>GST (18%):</span>
+                <span>₹${gst.toFixed(2)}</span>
+            </div>
+            <div class="summary-row">
                 <span>Delivery Fee:</span>
                 <span>₹${deliveryFee.toFixed(2)}</span>
             </div>
             <div class="summary-row total">
-                <span>Total:</span>
+                <span>Final Amount:</span>
                 <span>₹${grandTotal.toFixed(2)}</span>
             </div>
         </div>
@@ -1247,7 +1274,9 @@ async function generateAndDownloadInvoice(paymentMethod, customerName, customerM
 function calculateTotal() {
     cart = JSON.parse(localStorage.getItem('cart')) || [];
     const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    return (totalPrice + 50).toFixed(2); // Including delivery fee
+    const gst = totalPrice * 0.18;
+    const deliveryFee = 50;
+    return (totalPrice + gst + deliveryFee).toFixed(2);
 }
 
 // -------- Orders Storage & Rendering --------
@@ -1498,21 +1527,53 @@ async function loadAIRecommendations() {
     cardsContainer.style.display = 'none';
 
     try {
+        // Backend first (original behavior)
+        let items = [];
+        try {
+            const res = await fetch('http://127.0.0.1:3000/food-items');
+            if (res.ok) {
+                items = await res.json();
+                try { localStorage.setItem('cachedFoodItems', JSON.stringify(items)); } catch (_) {}
+            }
+        } catch (_) { /* ignore */ }
+        // CSV fallback
+        if (!items || items.length === 0) {
+            items = await loadItemsFromCsvPaths(['FoodItem_export_clean.csv', 'fooditem_export.csv','item_export.csv']);
+        }
+        if (!items || items.length === 0) {
+            const cached = JSON.parse(localStorage.getItem('cachedFoodItems') || '[]');
+            if (cached.length) items = cached;
+        }
+        if (!items || items.length === 0) {
+            // built-in minimal sample so UI never looks empty
+            items = [
+                { id:'sample1', name:'Sprouts Chaat', price:110, image_url:'images/pizza1.jpeg', protein:18, carbs:28, fats:6, calories:230, category:'diet', description:'Light and protein rich.' },
+                { id:'sample2', name:'Paneer Tikka', price:280, image_url:'images/indian.jpeg', protein:24, carbs:45, fats:28, calories:550, category:'diet', description:'Creamy classic.' },
+                { id:'sample3', name:'Aloo Tikki Burger', price:80, image_url:'images/burger1.jpeg', protein:10, carbs:52, fats:20, calories:430, category:'non-diet', description:'Tasty treat.' }
+            ];
+        }
         const pref = localStorage.getItem('dietPreference');
-        tag.textContent = pref === 'diet' ? 'Diet picks' : (pref === 'non-diet' ? 'Treat yourself' : 'Personalized');
+        tag.textContent = pref === 'diet' ? 'Diet picks' : (pref === 'non-diet' ? 'Treat yourself' : 'Balanced');
 
-        // NEW: AI recommendations from backend (cosine similarity)
-        const qs = new URLSearchParams();
-        if (pref === "diet" || pref === "non-diet") qs.set("diet_type", pref);
-        qs.set("limit", "5");
+        // Simple heuristic: Diet -> high protein, Non-diet -> high calories, else top rating proxy by carbs
+        if (pref === 'diet') {
+            items.sort((a,b) => (parseFloat(b.protein||0)) - (parseFloat(a.protein||0)));
+        } else if (pref === 'non-diet') {
+            items.sort((a,b) => (parseFloat(b.calories||0)) - (parseFloat(a.calories||0)));
+        } else {
+            items.sort((a,b) => (parseFloat(b.carbs||0)) - (parseFloat(a.carbs||0)));
+        }
 
-        const recoRes = await fetch(`/api/ai-recommendations?${qs.toString()}`);
-        const recoPayload = recoRes.ok ? await recoRes.json() : { items: [] };
-        const top = recoPayload.items || [];
-
+        const top = items.slice(0, 5);
+        // Ensure image URLs are absolute paths
+        top.forEach(it => {
+            if (!it.image_url.startsWith('/')) {
+                it.image_url = '/static/' + it.image_url;
+            }
+        });
         cardsContainer.innerHTML = top.map(it => `
             <div class="ai-card">
-                <img src="${it.image_url || '/static/images/default-food.jpg'}" alt="${it.name}">
+                <img src="${it.image_url}" alt="${it.name}">
                 <div class="ai-card-body">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <strong>${it.name}</strong>
@@ -1814,9 +1875,10 @@ async function placeOrder() {
     const data = await response.json();
 
     if (data.success) {
-        alert("Order placed successfully!");
-        localStorage.removeItem("cart");
-        window.location.href = "/orders";
+        alert("Order placed successfully! Your order is now pending admin approval.");
+        // keep cart so user can pay after confirmation
+        // optionally store latest order id
+        localStorage.setItem("latestOrderId", data.order_id);
     } else {
         alert("Error: " + (data.error || "Failed to place order"));
     }

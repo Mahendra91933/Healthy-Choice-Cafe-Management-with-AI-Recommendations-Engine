@@ -101,30 +101,22 @@
                     </div>
 
                     <div class="insights-card">
-                        <div class="card-title">Nutritional Insights</div>
+                        <div class="card-title">Nutrition Insights</div>
                         <div class="stat-grid">
-                            <div class="metric-box"><h5>Protein</h5><div class="metric-val" id="avgProtein">0g</div></div>
-                            <div class="metric-box"><h5>Carbs</h5><div class="metric-val" id="avgCarbs">0g</div></div>
-                            <div class="metric-box"><h5>Fats</h5><div class="metric-val" id="avgFats">0g</div></div>
-                            <div class="metric-box"><h5>Calories</h5><div class="metric-val" id="avgCalories">0</div></div>
+                            <div class="metric-box"><h5>Total Protein</h5><div class="metric-val" id="totalProtein">0g</div></div>
+                            <div class="metric-box"><h5>Total Carbs</h5><div class="metric-val" id="totalCarbs">0g</div></div>
+                            <div class="metric-box"><h5>Total Fats</h5><div class="metric-val" id="totalFats">0g</div></div>
+                            <div class="metric-box"><h5>Total Calories</h5><div class="metric-val" id="totalCalories">0</div></div>
                         </div>
-                        <div style="margin-top:10px;color:#6b7b88;font-size:12px;">Based on your orders</div>
-                    </div>
-
-                    <div class="insights-card">
-                        <div class="card-title">Login Statistics</div>
-                        <div class="stat-grid">
-                            <div class="metric-box"><h5>Total Logins</h5><div class="metric-val" id="totalLogins">0</div></div>
+                        <div class="nutrition-charts" style="margin-top:16px;">
+                            <div class="chart-card">
+                                <canvas id="profileMacroPie"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <canvas id="profileMacroBar"></canvas>
+                            </div>
                         </div>
-                        <div style="margin-top:10px;color:#6b7b88;font-size:12px;">Number of times you've logged in</div>
-                    </div>
-
-                    <div class="insights-card">
-                        <div class="card-title">Login History</div>
-                        <div id="loginHistoryContainer" style="max-height: 200px; overflow-y: auto;">
-                            <!-- Login history will be loaded here -->
-                        </div>
-                        <div style="margin-top:10px;color:#6b7b88;font-size:12px;">Your recent login activity</div>
+                        <div style="margin-top:10px;color:#6b7b88;font-size:12px;">Cumulative nutrition from your order history</div>
                     </div>
                 </div>
             </section>
@@ -188,26 +180,57 @@
                 document.getElementById("profileDOBDisplay").textContent = data.dob || "-";
                 document.getElementById("profileGenderDisplay").textContent = data.gender || "-";
 
-                // Login statistics
-                document.getElementById("totalLogins").textContent = payload.loginCount ?? 0;
-
-                const historyContainer = document.getElementById("loginHistoryContainer");
-                historyContainer.innerHTML = "";
-                (payload.loginHistory || []).forEach(entry => {
-                    const wrapper = document.createElement("div");
-                    wrapper.className = "login-history-row";
-                    const ts = entry.login_time ? new Date(entry.login_time).toLocaleString() : "Unknown time";
-                    wrapper.textContent = ts;
-                    historyContainer.appendChild(wrapper);
-                });
-
                 // Orders and nutrition statistics
                 document.getElementById("totalOrdersCount").textContent = payload.totalOrders ?? 0;
                 document.getElementById("prefText").textContent = payload.preference || "-";
-                document.getElementById("avgProtein").textContent = (payload.avgProtein ?? 0) + "g";
-                document.getElementById("avgCarbs").textContent = (payload.avgCarbs ?? 0) + "g";
-                document.getElementById("avgFats").textContent = (payload.avgFats ?? 0) + "g";
-                document.getElementById("avgCalories").textContent = payload.avgCalories ?? 0;
+
+                // Totals for nutrition insights
+                const totalProtein = payload.totalProtein ?? 0;
+                const totalCarbs = payload.totalCarbs ?? 0;
+                const totalFats = payload.totalFats ?? 0;
+                const totalCalories = payload.totalCalories ?? 0;
+
+                document.getElementById("totalProtein").textContent = totalProtein + "g";
+                document.getElementById("totalCarbs").textContent = totalCarbs + "g";
+                document.getElementById("totalFats").textContent = totalFats + "g";
+                document.getElementById("totalCalories").textContent = totalCalories;
+
+                // Draw profile nutrition charts
+                const pieCanvas = document.getElementById("profileMacroPie");
+                const barCanvas = document.getElementById("profileMacroBar");
+                if (pieCanvas) {
+                    new Chart(pieCanvas, {
+                        type: "pie",
+                        data: {
+                            labels: ["Protein", "Carbs", "Fats"],
+                            datasets: [{
+                                data: [totalProtein, totalCarbs, totalFats],
+                                backgroundColor: ["#2e7d32", "#7a3b41", "#f39c12"]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { position: "bottom" } }
+                        }
+                    });
+                }
+                if (barCanvas) {
+                    new Chart(barCanvas, {
+                        type: "bar",
+                        data: {
+                            labels: ["Protein", "Carbs", "Fats"],
+                            datasets: [{
+                                label: "Total grams",
+                                data: [totalProtein, totalCarbs, totalFats],
+                                backgroundColor: ["#2e7d32", "#7a3b41", "#f39c12"]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+                }
             } catch (err) {
                 console.error("Error loading profile:", err);
             }
