@@ -203,6 +203,50 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
+    // Load current meal mode from backend (settings page)
+    const mealModeLabel = document.querySelector('[data-metric="meal-mode-label"]');
+    if (mealButtons.length && mealModeLabel) {
+        fetch("/admin/api/settings")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (!data || !data.meal_mode) return;
+                const mode = String(data.meal_mode).toLowerCase();
+                mealButtons.forEach((b) => {
+                    if ((b.dataset.mealMode || "").toLowerCase() === mode) {
+                        mealButtons.forEach((x) => x.classList.remove("active"));
+                        b.classList.add("active");
+                        mealModeLabel.textContent =
+                            mode === "all" ? "All Meals" : mode.charAt(0).toUpperCase() + mode.slice(1);
+                    }
+                });
+            })
+            .catch(() => {});
+
+        const saveBtn = document.getElementById("saveMealModeBtn");
+        if (saveBtn) {
+            saveBtn.addEventListener("click", async () => {
+                const active = document.querySelector(".meal-mode.active");
+                const mode = active ? active.dataset.mealMode : "all";
+                try {
+                    const res = await fetch("/admin/set-meal-mode", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ meal_mode: mode })
+                    });
+                    const out = await res.json().catch(() => ({}));
+                    if (res.ok && out.success) {
+                        mealModeLabel.textContent =
+                            mode === "all" ? "All Meals" : mode.charAt(0).toUpperCase() + mode.slice(1);
+                    } else {
+                        alert(out.error || "Failed to save meal mode");
+                    }
+                } catch (e) {
+                    alert("Failed to save meal mode");
+                }
+            });
+        }
+    }
+
     // ----------------------------------------
     // Dashboard Metric Placeholders
     // ----------------------------------------
@@ -294,6 +338,200 @@ document.addEventListener("DOMContentLoaded", function () {
                     plugins: { legend: { display: false } },
                     cutout: "72%"
                 }
+            });
+        }
+    }
+
+    // ----------------------------------------
+    // Admin Menu Page (DB-backed)
+    // ----------------------------------------
+
+    const menuGrid = document.getElementById("menuGrid");
+    const menuSearch = document.querySelector(".menu-toolbar input.field-input");
+    const addMenuBtn = document.querySelector(".menu-add-button");
+
+    function renderMenuCards(items) {
+        if (!menuGrid) return;
+        menuGrid.innerHTML = "";
+        if (!items || !items.length) {
+            menuGrid.innerHTML = `
+                <div class="placeholder-row" style="grid-column: 1/-1; padding: 18px; text-align:center; color:#9ca3af;">
+                    No menu items found.
+                </div>
+            `;
+            return;
+        }
+
+        items.forEach((it) => {
+            const price = it.price != null ? String(it.price) : "0.00";
+            const active = !!it.is_active;
+            const card = document.createElement("article");
+            card.className = "menu-card";
+            card.dataset.itemId = it.id;
+            card.innerHTML = `
+                <header class="menu-card-header">
+                    <h2 class="menu-card-title">${escapeHtml(it.name || "Item")}</h2>
+                    <span class="menu-card-price">₹${escapeHtml(price)}</span>
+                </header>
+                <p class="menu-card-description">
+                    Category: <strong>${escapeHtml(it.category || "-")}</strong> • Diet: <strong>${escapeHtml(it.diet_type || "-")}</strong>
+                </p>
+                <div class="menu-card-tags">
+                    <span class="tag-pill">${escapeHtml(it.category || "category")}</span>
+                    <span class="tag-pill tag-soft">${escapeHtml(it.diet_type || "diet")}</span>
+                    <span class="tag-pill" style="border-color:${active ? "rgba(34,197,94,0.4)" : "rgba(245,158,11,0.4)"};">
+                        ${active ? "Active" : "Inactive"}
+                    </span>
+                </div>
+                <footer class="menu-card-footer">
+                    <button type="button" class="btn btn-text js-toggle">${active ? "Deactivate" : "Activate"}</button>
+                    <button type="button" class="btn btn-text js-edit">Edit</button>
+                    <button type="button" class="btn btn-text js-delete">Delete</button>
+                </footer>
+            `;
+            menuGrid.appendChild(card);
+        });
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    async function loadAdminMenuItems() {
+        if (!menuGrid) return;
+        const res = await fetch("/admin/api/menu-items");
+        const data = await res.json().catch(() => ({}));
+        const items = data.items || [];
+        window.__adminMenuItems = items;
+        renderMenuCards(items);
+    }
+
+    if (menuGrid) {
+        loadAdminMenuItems().catch(() => {});
+
+        menuGrid.addEventListener("click", async (e) => {
+            const btn = e.target.closest("button");
+            const card = e.target.closest(".menu-card");
+            if (!btn || !card) return;
+            const id = Number(card.dataset.itemId);
+
+            if (btn.classList.contains("js-toggle")) {
+                const isActive = btn.textContent.trim().toLowerCase() === "activate";
+                const res = await fetch("/admin/toggle-item", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id, is_active: isActive })
+                });
+                const out = await res.json().catch(() => ({}));
+                if (!res.ok || !out.success) {
+                    alert(out.error || "Failed to toggle item");
+                    return;
+                }
+                await loadAdminMenuItems();
+                return;
+            }
+
+            if (btn.classList.contains("js-delete")) {
+                if (!confirm("Delete this menu item?")) return;
+                const res = await fetch(`/admin/menu-item/${id}`, { method: "DELETE" });
+                const out = await res.json().catch(() => ({}));
+                if (!res.ok || !out.success) {
+                    alert(out.error || "Failed to delete item");
+                    return;
+                }
+                await loadAdminMenuItems();
+                return;
+            }
+
+            if (btn.classList.contains("js-edit")) {
+                const items = window.__adminMenuItems || [];
+                const item = items.find((x) => Number(x.id) === id);
+                if (!item) return;
+
+                const name = prompt("Item name", item.name || "");
+                if (name == null) return;
+                const price = prompt("Price", item.price ?? "");
+                if (price == null) return;
+                const category = prompt("Category (breakfast/lunch/dinner/snacks)", item.category || "lunch");
+                if (category == null) return;
+                const dietType = prompt("Diet type (diet/non-diet)", item.diet_type || "diet");
+                if (dietType == null) return;
+
+                const payload = {
+                    name,
+                    price,
+                    image_url: item.image_url || "",
+                    protein: item.protein || 0,
+                    carbs: item.carbs || 0,
+                    fats: item.fats || 0,
+                    calories: item.calories || 0,
+                    category,
+                    diet_type: dietType
+                };
+
+                const res = await fetch(`/admin/menu-item/${id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const out = await res.json().catch(() => ({}));
+                if (!res.ok || !out.success) {
+                    alert(out.error || "Failed to update item");
+                    return;
+                }
+                await loadAdminMenuItems();
+            }
+        });
+
+        if (menuSearch) {
+            menuSearch.addEventListener("input", () => {
+                const q = menuSearch.value.trim().toLowerCase();
+                const items = window.__adminMenuItems || [];
+                const filtered = !q ? items : items.filter((it) => String(it.name || "").toLowerCase().includes(q));
+                renderMenuCards(filtered);
+            });
+        }
+
+        if (addMenuBtn) {
+            addMenuBtn.addEventListener("click", async () => {
+                const name = prompt("Item name");
+                if (!name) return;
+                const price = prompt("Price");
+                if (price == null) return;
+                const category = prompt("Category (breakfast/lunch/dinner/snacks)", "lunch");
+                if (!category) return;
+                const dietType = prompt("Diet type (diet/non-diet)", "diet");
+                if (!dietType) return;
+
+                const payload = {
+                    name,
+                    price,
+                    image_url: "",
+                    protein: 0,
+                    carbs: 0,
+                    fats: 0,
+                    calories: 0,
+                    category,
+                    diet_type: dietType,
+                    is_active: 0
+                };
+
+                const res = await fetch("/admin/menu-item", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const out = await res.json().catch(() => ({}));
+                if (!res.ok || !out.success) {
+                    alert(out.error || "Failed to add item");
+                    return;
+                }
+                await loadAdminMenuItems();
             });
         }
     }

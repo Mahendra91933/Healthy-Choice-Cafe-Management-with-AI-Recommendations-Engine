@@ -141,12 +141,12 @@ async function loadProfile() {
 
     try {
         // Fetch latest user data from server
-        const response = await fetch('http://127.0.0.1:3000/check-user', {
+        const response = await fetch('/check-user', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ mobile: localUser.mobile })
+            body: JSON.stringify({ email: localUser.email })
         });
 
         if (!response.ok) {
@@ -493,7 +493,7 @@ async function verifyOtp() {
     if (data.success) {
       // Fetch user data after successful login
       const email = document.getElementById('loginEmail').value;
-      const checkResponse = await fetch('http://127.0.0.1:3000/check-user', {
+      const checkResponse = await fetch('/check-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -687,26 +687,41 @@ function createNutritionChart(canvasId, protein, carbs, fats, calories) {
     });
 }
 
-// Function to load food items from database menu-items API (primary) with fallback
+// Function to load food items from database (primary) with fallback
 async function loadFoodItems(){
     try {
-        // Try to fetch from menu-items API first (database)
-        const response = await fetch("http://127.0.0.1:3000/menu-items")
+        // NEW: Fetch from user-facing filtered API (active items + admin meal mode)
+        const response = await fetch("/api/menu-items");
         if (response.ok) {
-            const items = await response.json()
+            const payload = await response.json();
+            let items = payload.items || [];
             const menuGrid = document.querySelector(".menu-grid")
             if (!menuGrid) return;
             menuGrid.innerHTML = ""
+            // Optional client-side diet filter chips (diet/non-diet)
+            const pref = localStorage.getItem("dietPreference");
+            if (pref === "diet" || pref === "non-diet") {
+                items = items.filter((it) => String(it.diet_type || "").toLowerCase() === pref);
+            }
+
             items.forEach(item => {
                 menuGrid.innerHTML += `
                 <div class="menu-item menu-card">
                     <div class="image-block">
-                        <img src="${item.image_url}" class="item-image">
+                        <img src="${item.image_url || '/static/images/default-food.jpg'}" class="item-image">
                     </div>
                     <div class="item-details">
                         <h3 class="item-title">${item.name}</h3>
                         <p class="item-price">₹${item.price}</p>
-                        <button class="add-to-cart-btn" onclick="addToCart(${item.id},'${item.name}',${item.price})">Add to Cart</button>
+                        <div class="nutrition-info" style="margin:10px 0;">
+                            <div class="nutrition-values">
+                                <span class="nutrition-item">Protein: ${item.protein || 0}g</span>
+                                <span class="nutrition-item">Carbs: ${item.carbs || 0}g</span>
+                                <span class="nutrition-item">Fats: ${item.fats || 0}g</span>
+                                <span class="nutrition-item">Calories: ${item.calories || 0}</span>
+                            </div>
+                        </div>
+                        <button class="add-to-cart-btn" onclick="showAddToCartConfirmation('${item.id}', '${item.name}', '${item.price}', '${item.image_url || ''}', '${item.protein || 0}', '${item.carbs || 0}', '${item.fats || 0}', '${item.calories || 0}')">Add to Cart</button>
                     </div>
                 </div>
                 `
@@ -1483,53 +1498,21 @@ async function loadAIRecommendations() {
     cardsContainer.style.display = 'none';
 
     try {
-        // Backend first (original behavior)
-        let items = [];
-        try {
-            const res = await fetch('http://127.0.0.1:3000/food-items');
-            if (res.ok) {
-                items = await res.json();
-                try { localStorage.setItem('cachedFoodItems', JSON.stringify(items)); } catch (_) {}
-            }
-        } catch (_) { /* ignore */ }
-        // CSV fallback
-        if (!items || items.length === 0) {
-            items = await loadItemsFromCsvPaths(['FoodItem_export_clean.csv', 'fooditem_export.csv','item_export.csv']);
-        }
-        if (!items || items.length === 0) {
-            const cached = JSON.parse(localStorage.getItem('cachedFoodItems') || '[]');
-            if (cached.length) items = cached;
-        }
-        if (!items || items.length === 0) {
-            // built-in minimal sample so UI never looks empty
-            items = [
-                { id:'sample1', name:'Sprouts Chaat', price:110, image_url:'images/pizza1.jpeg', protein:18, carbs:28, fats:6, calories:230, category:'diet', description:'Light and protein rich.' },
-                { id:'sample2', name:'Paneer Tikka', price:280, image_url:'images/indian.jpeg', protein:24, carbs:45, fats:28, calories:550, category:'diet', description:'Creamy classic.' },
-                { id:'sample3', name:'Aloo Tikki Burger', price:80, image_url:'images/burger1.jpeg', protein:10, carbs:52, fats:20, calories:430, category:'non-diet', description:'Tasty treat.' }
-            ];
-        }
         const pref = localStorage.getItem('dietPreference');
-        tag.textContent = pref === 'diet' ? 'Diet picks' : (pref === 'non-diet' ? 'Treat yourself' : 'Balanced');
+        tag.textContent = pref === 'diet' ? 'Diet picks' : (pref === 'non-diet' ? 'Treat yourself' : 'Personalized');
 
-        // Simple heuristic: Diet -> high protein, Non-diet -> high calories, else top rating proxy by carbs
-        if (pref === 'diet') {
-            items.sort((a,b) => (parseFloat(b.protein||0)) - (parseFloat(a.protein||0)));
-        } else if (pref === 'non-diet') {
-            items.sort((a,b) => (parseFloat(b.calories||0)) - (parseFloat(a.calories||0)));
-        } else {
-            items.sort((a,b) => (parseFloat(b.carbs||0)) - (parseFloat(a.carbs||0)));
-        }
+        // NEW: AI recommendations from backend (cosine similarity)
+        const qs = new URLSearchParams();
+        if (pref === "diet" || pref === "non-diet") qs.set("diet_type", pref);
+        qs.set("limit", "5");
 
-        const top = items.slice(0, 5);
-        // Ensure image URLs are absolute paths
-        top.forEach(it => {
-            if (!it.image_url.startsWith('/')) {
-                it.image_url = '/static/' + it.image_url;
-            }
-        });
+        const recoRes = await fetch(`/api/ai-recommendations?${qs.toString()}`);
+        const recoPayload = recoRes.ok ? await recoRes.json() : { items: [] };
+        const top = recoPayload.items || [];
+
         cardsContainer.innerHTML = top.map(it => `
             <div class="ai-card">
-                <img src="${it.image_url}" alt="${it.name}">
+                <img src="${it.image_url || '/static/images/default-food.jpg'}" alt="${it.name}">
                 <div class="ai-card-body">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <strong>${it.name}</strong>
