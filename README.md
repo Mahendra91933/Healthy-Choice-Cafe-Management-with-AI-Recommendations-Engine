@@ -1,322 +1,219 @@
-<div align="center">
+# Healthy Cafe Zone 🍽️ - Smart Healthy Cafeteria Management System
 
-# 🍽️ ** Healthy Cafe Zone** - Smart Café Management System
-
+[![Python](https://img.shields.io/badge/Python-3.8+-brightgreen.svg)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-2.3.3-blue.svg)](https://flask.palletsprojects.com/)
-[![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0+-4479A1.svg)](https://www.mysql.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine?style=social)](https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine)
+[![OTP Auth](https://img.shields.io/badge/Auth-OTP%20Secure-orange.svg)](https://github.com/)
 
-> **Revolutionize Your Café Experience** 🚀  
-> *AI-Powered Recommendations • Secure OTP Authentication • Seamless E-Commerce*
+> **AI-Powered Healthy Indian Cafeteria** 🚀  
+> *Secure OTP Login • Admin Dashboard • PDF Invoices • Real-time Orders*
 
-[🌐 Live Demo](https://cafe-zone-demo.herokuapp.com) • [📖 Documentation](https://cafe-zone-docs.readthedocs.io) • [🐛 Report Bug](https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine.git)
+[🌐 Local Demo](http://127.0.0.1:3000) • [📖 API Docs](#-api-reference) • [🐛 Issues](https://github.com/ayusjakhmola25/Healthy-Cafe/issues)
 
 ---
 
-</div>
-
 ## 📋 Table of Contents
-
 - [✨ Overview](#-overview)
-- [🎯 Key Features](#-key-features)
-- [🛠️ Technology Stack](#️-technology-stack)
+- [🎯 Features](#-features)
+- [🛠️ Tech Stack](#️-tech-stack)
 - [🚀 Quick Start](#-quick-start)
 - [📸 Screenshots](#-screenshots)
-- [📖 Usage Guide](#-usage-guide)
+- [📖 Usage](#-usage)
 - [🔌 API Reference](#-api-reference)
-- [📁 Project Structure](#-project-structure)
+- [📁 Structure](#-project-structure)
+- [🚀 Deployment](#-deployment)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
-- [📞 Support](#-support)
 
 ---
 
 ## ✨ Overview
 
-<div align="center">
+**Healthy Cafe Zone** is a full-stack Flask application for managing a healthy Indian cafeteria. It features secure user authentication (OTP via email), e-commerce (cart/orders/payment with GST/PDF invoices), personalized analytics, and a comprehensive admin panel for business operations.
 
-**Healthy Cafe Zone** is a cutting-edge, AI-driven café management platform that transforms traditional café operations into intelligent, customer-centric experiences. Built with modern web technologies, it combines secure authentication, personalized recommendations, and seamless e-commerce functionality to create the ultimate dining solution.
-
-</div>
-
-### 🎯 **What Makes Cafe Zone Special?**
-
-- **🤖 AI-Powered Intelligence**: Smart meal recommendations based on dietary preferences and health goals
-- **🔐 Bank-Grade Security**: OTP-based authentication with comprehensive session management
-- **📱 Responsive Design**: Beautiful, mobile-first interface that works on all devices
-- **📊 Real-Time Analytics**: Comprehensive insights into customer behavior and business performance
-- **🧾 Professional Invoicing**: Automated PDF generation with branded templates
+Focuses on healthy foods (e.g., Oats Idli, Palak Paneer, Ragi Dosa) with diet categorization and meal_mode filtering (breakfast/lunch/dinner).
 
 ---
 
-## 🎯 Key Features
+## 🎯 Features
 
-### 🔐 **Secure Authentication System**
-- ✅ **OTP-Based Login**: Secure mobile verification with time-limited OTPs
-- ✅ **User Registration**: Seamless onboarding with comprehensive profile management
-- ✅ **Session Management**: Persistent sessions with automatic logout and security monitoring
+### 👥 **User Features**
+- 🔐 **Secure Auth**: Register/Login with OTP (Gmail SMTP), bcrypt passwords, login history/IP tracking
+- 🍽️ **Menu Browsing**: Filtered by meal_mode/category, image gallery (30+ healthy items)
+- 🛒 **Shopping Cart**: Add/remove items, guest/logged-in persistence
+- 💳 **Checkout**: Orders, PDF invoices (ReportLab with GST 18% + delivery), payment simulation
+- 📊 **Profile**: Personal details, login stats, order history, nutritional insights (cal/protein/carbs)
 
-### 🤖 **AI-Powered Recommendations**
-- 🎯 **Personalized Suggestions**: Intelligent meal recommendations based on health objectives
-- 🏷️ **Smart Categorization**: Advanced food item classification and tagging system
-- 🥗 **Health-Aware Options**: Support for diet, non-diet, and balanced meal preferences
+### 👨‍💼 **Admin Panel** (`/admin`)
+- 📈 **Dashboard**: Users/orders/revenue/low-stock metrics
+- 👥 **Users**: List/manage all users
+- 🍽️ **Menu**: CRUD menu_items (toggle active, category, price/image)
+- 📦 **Inventory**: Stock tracking/alerts
+- 📋 **Orders**: View/confirm/cancel user orders
+- 🔒 **Security Logs**: Login history audit
+- ⚙️ **Settings**: meal_mode (all/breakfast/lunch/dinner) filtering
 
-### 🛒 **Advanced E-Commerce Features**
-- 📋 **Dynamic Menu Management**: Real-time food item updates with customer ratings
-- 🛍️ **Smart Shopping Cart**: Intuitive cart management with quantity controls and persistence
-- 📦 **Complete Order Processing**: End-to-end order lifecycle management with status tracking
-
-### 📊 **Comprehensive Analytics**
-- 📈 **Login History Tracking**: Detailed user activity monitoring and analytics
-- 📊 **Order Insights**: Advanced analytics on customer preferences and trends
-- 🎯 **Performance Metrics**: Real-time business intelligence and reporting
-
-### 🧾 **Professional Invoicing System**
-- 📄 **PDF Generation**: Automated invoice creation using ReportLab
-- 💰 **Tax Calculations**: Built-in GST and delivery fee computations
-- 🎨 **Branded Templates**: Customizable, professional invoice layouts
+### 🔧 **Backend Excellence**
+- 🛡️ **Security**: Flask-Limiter rate limiting, session mgmt, password validation (8-12 chars, upper/num/special)
+- 📄 **PDF Invoices**: Branded with tax calc, auto-generated base64
+- 📈 **Analytics**: Real-time login/order stats, guest order tracking
+- 🔄 **DB**: MySQL idempotent schema init, efficient queries
+- 🤖 **AI Ready**: Recommendation stubs (pandas/scikit-learn deps)
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Tech Stack
 
-<div align="center">
-
-### **Backend Architecture**
-| Component | Technology | Description |
-|-----------|------------|-------------|
-| 🖥️ **Framework** | Flask 2.3.3 | Lightweight WSGI web application framework |
-
-### **Frontend Technologies**
-| Component | Technology | Description |
-|-----------|------------|-------------|
-| 🎨 **Markup** | HTML5/CSS3 | Modern responsive web design |
-| ⚡ **Scripting** | JavaScript ES6+ | Dynamic client-side interactions |
-| 🏗️ **Templating** | Jinja2 | Powerful server-side templating engine |
-
-### **Libraries & Tools**
-| Library | Purpose |
-|---------|---------|
-| 📊 **Pandas** | Data manipulation and analysis |
-| 📄 **ReportLab** | PDF generation and manipulation |
-| 🌐 **Flask-CORS** | Cross-Origin Resource Sharing support |
-| 📈 **Chart.js** | Interactive data visualizations |
-
-</div>
+| Component | Technology | Version |
+|-----------|------------|---------|
+| **Framework** | Flask | 2.3.3 |
+| **Database** | MySQL | 8.0+ |
+| **Auth** | bcrypt + OTP (SMTP) | - |
+| **PDF** | ReportLab | 4.0.4 |
+| **Rate Limit** | Flask-Limiter | 3.5.0 |
+| **CORS/Email** | Flask-CORS/Mail | 4.0.0/0.9.1 |
+| **Frontend** | Jinja2 + HTML/CSS/JS | - |
+| **ML/Analysis** | pandas + scikit-learn | 2.0.3/1.3.0 |
 
 ---
 
 ## 🚀 Quick Start
 
-### 📋 Prerequisites
-- 🐍 **Python 3.8+**
-- 📦 **Git**
-- 🌐 **Web Browser**
+### Prerequisites
+- Python 3.8+
+- MySQL 8.0+ (create `healthy_cafe_db`, update creds in `app.py`)
+- Git
 
-### ⚡ Installation & Setup
-
-<div align="center">
-
-#### **Step 1: Clone & Navigate**
 ```bash
-git clone https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine.git
-cd cafe-zone
-```
+# Clone
+git clone <your-repo-url> Healthy-Cafe
+cd Healthy-Cafe
 
-#### **Step 2: Virtual Environment**
-```bash
-# Create virtual environment
+# Virtualenv
 python -m venv venv
-
-# Activate environment
+# Windows: venv\Scripts\activate
 source venv/bin/activate  # Linux/Mac
-# OR
-venv\Scripts\activate     # Windows
-```
 
-#### **Step 3: Dependencies**
-```bash
+# Install deps
 pip install -r requirements.txt
-```
 
-#### **Step 4: Database Setup**
-```bash
-# Configure MySQL in app.py
-python init_db.py
-```
+# Start MySQL & create DB/users (use init_schema() in app.py)
+# Edit app.py: host/user/pass/database
 
-#### **Step 5: Launch Application**
-```bash
+# Run
 python app.py
 ```
+🌐 Open [http://127.0.0.1:3000](http://127.0.0.1:3000)
 
-#### **Step 6: Access Cafe Zone**
-🌐 **Open:** `http://127.0.0.1:3000`
-
-</div>
+**Demo Creds**:
+- User: register new or email any@ex.com/pass@123 (OTP to healthycafe2025@gmail.com)
+- Admin: Create admin user (role='admin') or check app.py
 
 ---
 
 ## 📸 Screenshots
 
-<div align="center">
+| Cafeteria Menu | Cart & Orders | Profile Analytics |
+|---------------|---------------|-------------------|
+| ![Menu](static/images/cafelogo.jpeg) | ![Cart](static/images/healthy.jpeg) | ![Profile](static/images/indian.jpeg) |
 
-### **🏠 Landing Page**
-![Cafeteria View](https://via.placeholder.com/800x400/4CAF50/FFFFFF?text=Cafeteria+Menu)
+| Admin Dashboard | Admin Menu CRUD | PDF Invoice Sample |
+|-----------------|-----------------|-------------------|
+| ![Dashboard](static/images/palak_paneer_with_brown_rice_601212bc.jpg) | ![Menu](static/images/ragi_dosa_with_sambar_25da86d7.jpg) | ![Invoice](static/images/chicken_biryani_2988b1c7.jpg) |
 
-### **🛒 Shopping Cart**
-![Cart View](https://via.placeholder.com/800x400/2196F3/FFFFFF?text=Shopping+Cart)
-
-### **👤 User Profile**
-![Profile View](https://via.placeholder.com/800x400/FF9800/FFFFFF?text=User+Profile)
-
-### **📊 Analytics Dashboard**
-![Analytics](https://via.placeholder.com/800x400/9C27B0/FFFFFF?text=Analytics+Dashboard)
-
-</div>
+*(Replace with actual screenshots; images are healthy food reps)*
 
 ---
 
-## 📖 Usage Guide
+## 📖 Usage
 
-### 👥 **For Customers**
+**User Flow**:
+1. Register/Login (OTP email) → Profile setup
+2. Browse `/cafeteria` (filtered menu) → Add to cart
+3. `/cart` → `/payment` (save order + PDF)
+4. `/orders`/`/profile` for history/analytics
 
-1. **📱 Register/Login**
-   - Create account with mobile verification
-   - Secure OTP-based authentication
-
-2. **🍽️ Browse & Discover**
-   - Explore AI-powered menu recommendations
-   - Filter by dietary preferences
-
-3. **🛒 Shop Smart**
-   - Add items to cart with confirmation
-   - Adjust quantities and review selections
-
-4. **💳 Checkout & Pay**
-   - Secure payment processing
-   - Instant PDF invoice generation
-
-### 👨‍💼 **For Administrators**
-
-- 📊 **Monitor Activity**: Track user logins and behavior
-- 🍽️ **Manage Menu**: Update items, categories, and pricing
-- 📈 **View Analytics**: Access comprehensive business insights
+**Admin** (`/admin` → login):
+- Dashboard metrics, manage users/menu/inventory/orders
+- Toggle meal_mode in Settings
 
 ---
 
 ## 🔌 API Reference
 
-<div align="center">
+| Endpoint | Method | Description | Auth |
+|----------|--------|-------------|------|
+| `/register` | POST | Create user | - |
+| `/send-login-otp` | POST | Send OTP | - |
+| `/verify-login-otp` | POST | Login | - |
+| `/food-items` | GET | Active menu | user |
+| `/add-to-cart` | POST | Add item | - |
+| `/save-order` | POST | Guest order | - |
+| `/generate-invoice` | POST | PDF base64 | - |
+| `/admin/menu-items` | POST | Admin CRUD | admin |
 
-| Endpoint | Method | Description | Auth Required |
-|----------|--------|-------------|---------------|
-| `/register` | POST | User registration | ✅ |
-| `/login` | POST | Send login OTP | ✅ |
-| `/verify-login-otp` | POST | Verify OTP & login | ✅ |
-| `/food-items` | GET | Retrieve menu items | ✅ |
-| `/add-to-cart` | POST | Add items to cart | ✅ |
-| `/save-order` | POST | Process order | ✅ |
-| `/generate-invoice` | POST | Create PDF invoice | ✅ |
-| `/update-profile` | POST | Update user profile | ✅ |
-
-</div>
-
-**📝 API Documentation:** [Postman Collection](https://documenter.getpostman.com/view/your-api-docs)
+*Full routes in app.py. Session-based auth.*
 
 ---
 
-## 📁 Project Structure
+## 📁 Structure
 
 ```
-cafe-zone/
-├── 📄 app.py                 # Main Flask application & routes
-├── 📦 requirements.txt      # Python dependencies
-├── 📖 README.md             # Project documentation
-├── 📁 static/
-│   ├── 🎨 style.css         # Application stylesheets
-│   ├── ⚡ script.js         # Client-side JavaScript
-│   └── 🖼️ images/           # Static image assets
-└── 📁 templates/
-    ├── 🏠 cafeteria.html    # Main menu page
-    ├── 🔐 login.html        # User authentication
-    ├── 📝 register.html     # User registration
-    ├── 🛒 cart.html         # Shopping cart
-    ├── 📦 orders.html       # Order history
-    ├── 💳 payment.html      # Payment processing
-    └── 👤 profile.html      # User profile management
+Healthy-Cafe/
+├── app.py              # Flask app + all routes/DB
+├── requirements.txt    # Deps
+├── README.md          # 📄 This file
+├── TODO.md            # Tasks
+├── static/            # CSS/JS/images (30+ foods)
+└── templates/         # Jinja HTML
+    ├── user pages...  # cafeteria/cart etc.
+    └── admin/         # dashboard/menu etc.
 ```
+
+---
+
+## 🚀 Deployment
+
+**Heroku/Render**:
+```bash
+# Procfile: web: python app.py
+# Set env: MYSQL_HOST/user/pass/db
+git push heroku main
+```
+
+**Docker** (future):
+```
+FROM python:3.11-slim
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+EXPOSE 3000
+CMD ["python", "app.py"]
+```
+
+Update Gmail app password for prod SMTP.
 
 ---
 
 ## 🤝 Contributing
 
-<div align="center">
+1. Fork → `git clone + feature/branch`
+2. Commit: `git commit -m "feat: add X"`
+3. PR to `main`
+4. Tests: Add to `tests/` (pytest), `pip install pytest`
+5. Docs: Update README/API
 
-**We ❤️ contributions!** Help us make Cafe Zone even better.
-
-</div>
-
-### 🚀 **How to Contribute**
-
-1. **🍴 Fork** the repository
-2. **🌿 Create** a feature branch: `git checkout -b feature/amazing-feature`
-3. **💻 Commit** changes: `git commit -m 'Add amazing feature'`
-4. **📤 Push** to branch: `git push origin feature/amazing-feature`
-5. **🔄 Open** a Pull Request
-
-### 📋 **Development Guidelines**
-- Follow PEP 8 style guidelines
-- Write comprehensive tests
-- Update documentation
-- Ensure cross-browser compatibility
+Issues: [GitHub Issues](https://github.com/issues)
 
 ---
 
 ## 📄 License
-
-<div align="center">
-
-**Cafe Zone** is licensed under the **MIT License**  
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-*This project is free to use, modify, and distribute. See [LICENSE](LICENSE) for details.*
-
-</div>
-
----
-
-## 📞 Support
-
-<div align="center">
-
-### **Get in Touch**
-
-🐛 **Bug Reports**: [GitHub Issues](https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine/issues)  
-💡 **Feature Requests**: [GitHub Discussions](https://github.com/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine/discussions)  
-📧 **Email Support**: support@cafezone.com  
-📱 **Community**: [Discord Server](https://discord.gg/cafe-zone)
-
-### **📊 Project Stats**
-![GitHub contributors](https://img.shields.io/github/contributors/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine)
-![GitHub last commit](https://img.shields.io/github/last-commit/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine)
-![GitHub issues](https://img.shields.io/github/issues/ayusjakhmola25/Healthy-Choice-Caf-management-with-AI-Recommendations-Engine)
-
-</div>
+MIT License - © 2025 Healthy Cafe Zone. See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
-
-## 🌟 **Made with ❤️ for Café Lovers Everywhere**
-
-**⭐ Star this repo if you found it helpful!**
-
-[⬆️ Back to Top](#- Healthy cafe-zone---smart-café-management-system)
-
----
-
-*© 2025 Cafe Zone. All rights reserved.*
-
+⭐ **Star if useful!** · **Made with ❤️ for healthy eating**  
+![Metrics](https://img.shields.io/badge/maintenance-active-green.svg)
 </div>
