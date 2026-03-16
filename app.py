@@ -1,12 +1,7 @@
-
-
 import os
 import sys
 import json
-
-
 os.environ['PYTHONIOENCODING'] = 'utf-8'
-
 import bcrypt
 from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
@@ -22,8 +17,6 @@ from reportlab.lib import colors
 import random
 import time
 from datetime import datetime, timedelta
-
-
 if sys.platform == 'win32':
     import codecs
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
