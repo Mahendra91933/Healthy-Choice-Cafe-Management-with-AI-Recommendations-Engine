@@ -135,20 +135,12 @@
                                                 </span>
                                             </td>
                                             <td>
-                                                <form method="POST" action="/admin/orders/{{ order.id }}/action" style="display:inline;">
-                                                    <input type="hidden" name="action" value="confirm">
-                                                    <button type="submit" class="btn btn-text"
-                                                            {% if order.order_status == 'confirmed' %}disabled{% endif %}>
-                                                        Confirm
-                                                    </button>
-                                                </form>
-                                                <form method="POST" action="/admin/orders/{{ order.id }}/action" style="display:inline;margin-left:4px;">
-                                                    <input type="hidden" name="action" value="cancel">
-                                                    <button type="submit" class="btn btn-text"
-                                                            {% if order.order_status == 'cancelled' %}disabled{% endif %}>
-                                                        Cancel
-                                                    </button>
-                                                </form>
+                                                {% if order.order_status == 'pending' %}
+                                                    <a href="/admin/confirm/{{ order.id }}" style="color:lime;">Confirm</a>
+                                                    <a href="/admin/cancel/{{ order.id }}" style="color:red;">Cancel</a>
+                                                {% else %}
+                                                    <span style="color:gray;">No Action</span>
+                                                {% endif %}
                                             </td>
                                         </tr>
                                     {% endfor %}

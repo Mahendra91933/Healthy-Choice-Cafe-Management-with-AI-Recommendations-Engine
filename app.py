@@ -1255,10 +1255,10 @@ def admin_inventory():
 @admin_required
 def admin_orders():
     cursor.execute("""
-    SELECT orders.*, users.name
-    FROM orders
-    JOIN users ON users.id = orders.user_id
-    ORDER BY orders.created_at DESC
+    SELECT o.id, u.name, o.total_amount, o.order_status, o.created_at
+    FROM orders o
+    JOIN users u ON o.user_id = u.id
+    ORDER BY o.id DESC
     """)
 
     orders = cursor.fetchall()
