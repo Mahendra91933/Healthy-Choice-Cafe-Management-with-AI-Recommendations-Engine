@@ -130,16 +130,22 @@
                                             <td>{{ order.name }}</td>
                                             <td>₹{{ "%.2f"|format(order.total_amount) }}</td>
                                             <td>
-                                                <span class="status-badge {{ order.order_status|lower }}">
-                                                    {{ order.order_status|capitalize }}
-                                                </span>
+                                                {% if order.order_status == 'confirmed' %}
+                                                    <span class="status-badge status-confirmed">✔ Confirmed</span>
+                                                {% elif order.order_status == 'cancelled' %}
+                                                    <span class="status-badge status-cancelled">✖ Cancelled</span>
+                                                {% else %}
+                                                    <span class="status-badge {{ order.order_status|lower }}">
+                                                        {{ order.order_status|capitalize }}
+                                                    </span>
+                                                {% endif %}
                                             </td>
                                             <td>
                                                 {% if order.order_status == 'pending' %}
-                                                    <a href="/admin/confirm/{{ order.id }}" style="color:lime;">Confirm</a>
-                                                    <a href="/admin/cancel/{{ order.id }}" style="color:red;">Cancel</a>
+                                                    <a href="/admin/confirm/{{ order.id }}" class="action-confirm">Confirm</a>
+                                                    <a href="/admin/cancel/{{ order.id }}" class="action-cancel">Cancel</a>
                                                 {% else %}
-                                                    <span style="color:gray;">No Action</span>
+                                                    <span class="action-none">No Action</span>
                                                 {% endif %}
                                             </td>
                                         </tr>
