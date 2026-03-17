@@ -1,10 +1,120 @@
 
+/* eslint-disable no-undef, no-unused-vars */
+
 // ============================================
 // ADMIN PANEL FRONTEND SCRIPT
 // ============================================
 
 document.addEventListener("DOMContentLoaded", function () {
     console.log("Admin panel script initialised");
+
+    // Dashboard chart instances - prevent duplicates
+    let revenueChartInstance = null;
+    let orderChartInstance = null;
+
+    // Fill missing dates for revenue chart (critical for 7-day consistency)
+    function fillMissingDates(data) {
+        const map = {};
+        data.forEach(d => map[d.date] = d.revenue);
+
+        const result = [];
+        const today = new Date();
+
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(today.getDate() - i);
+            const key = d.toISOString().split('T')[0];
+
+            result.push({
+                date: key,
+                revenue: map[key] || 0
+            });
+        }
+
+        return result;
+    }
+
+    // Load revenue chart (fixed + reusable)
+    async function loadRevenueChart() {
+        try {
+            const res = await fetch('/admin/revenue-data');
+            let data = await res.json();
+
+            data = fillMissingDates(data);
+
+            const labels = data.map(d => d.date);
+            const values = data.map(d => d.revenue);
+
+            const ctx = document.getElementById('revenueChart');
+
+            if (!ctx) return;
+
+            if (revenueChartInstance) {
+                revenueChartInstance.destroy();
+            }
+
+            revenueChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Revenue (₹)',
+                        data: values,
+                        fill: true,
+                        tension: 0.3,
+                        borderColor: "#10b981",
+                        backgroundColor: "rgba(16, 185, 129, 0.1)"
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        } catch (err) {
+            console.error('Revenue chart error:', err);
+        }
+    }
+
+    // Load order distribution (fixed with destroy)
+    async function loadOrderDistribution() {
+        try {
+            const res = await fetch('/admin/order-distribution');
+            const data = await res.json();
+
+            const labels = data.map(d => d.status);
+            const values = data.map(d => d.count);
+
+            const ctx = document.getElementById('orderChart');
+
+            if (!ctx) return;
+
+            if (orderChartInstance) {
+                orderChartInstance.destroy();
+            }
+
+            orderChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ["#f59e0b", "#3b82f6", "#22c55e", "#ef4444", "#8b5cf6"],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    cutout: "72%"
+                }
+            });
+        } catch (err) {
+            console.error('Order distribution error:', err);
+        }
+    }
+
 
     // ----------------------------------------
     // Admin Login Handling
@@ -451,15 +561,7 @@ document.addEventListener("DOMContentLoaded", function () {
         loadCurrentMode();
     }
 
-    // ----------------------------------------
-    // DASHBOARD - RECENT ORDERS
-    // ----------------------------------------
-
-    if (window.location.pathname.includes("/admin/dashboard")) {
-        loadRecentOrders();
-        loadOrderDistribution();
-    }
-
+    // Recent orders (no change - already perfect)
     async function loadRecentOrders() {
         const tbody = document.querySelector("#recentOrdersBody");
         if (!tbody) return;
@@ -493,10 +595,62 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    // View All handler
+
+
+// View All handler
     document.querySelector(".card-header button.btn.btn-text")?.addEventListener("click", () => {
         window.location.href = "/admin/orders";
     });
+
+    // Order status update function
+    window.updateOrder = async function(orderId, status) {
+        try {
+            const response = await fetch('/admin/update-order-status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    order_id: orderId, 
+                    status: status 
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Update failed');
+            }
+
+            // Reload page to refresh table
+            location.reload();
+        } catch (error) {
+            console.error('Order update error:', error);
+            alert('Failed to update order status');
+        }
+    };
+
+    // COD confirmation function (exact pattern from task)
+    window.confirmCodOrder = function(orderId) {
+        fetch('/admin/confirm-cod/' + orderId, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('Order marked as PAID');
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Confirmation failed'));
+            }
+        })
+        .catch(err => {
+            console.error('COD confirm error:', err);
+            alert('Failed to confirm COD payment');
+        });
+    };
+
 
     // ----------------------------------------
     // Dashboard Metric Placeholders
@@ -508,114 +662,53 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
-    // ----------------------------------------
-    // Dashboard Charts (FINAL CLEAN FIX)
-    // ----------------------------------------
 
-    if (typeof Chart !== "undefined") {
-        // Hidden div se data fetch karein
-        const dataProvider = document.getElementById("revenue-data-provider");
-        let data = [];
+
+    // AUTO SYNC - main feature (dashboard only)
+    function startDashboardAutoSync() {
+        // Initial load
+        loadRevenueChart();
+        loadOrderDistribution();
+        loadRecentOrders();
+
+        // Auto refresh every 5 seconds
+        setInterval(() => {
+            loadRevenueChart();
+            loadOrderDistribution();
+            loadRecentOrders();
+        }, 5000);
+    }
+
+    // Trigger ONLY on dashboard page
+    if (window.location.pathname.includes("/admin/dashboard")) {
+        if (typeof Chart !== "undefined") {
+            startDashboardAutoSync();
+        } else {
+            // Chart.js not loaded yet - wait and retry
+            const observer = new MutationObserver(() => {
+                if (typeof Chart !== "undefined") {
+                    startDashboardAutoSync();
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.head, { childList: true, subtree: true });
+        }
+    }
+
+    // Handle order action buttons (delegation for orders.html)
+    document.addEventListener('click', function(e) {
+        // Handle status updates
+        if (e.target.classList.contains('action-btn') && !e.target.classList.contains('cod-btn')) {
+            const orderId = e.target.getAttribute('data-id');
+            const status = e.target.getAttribute('data-action');
+            updateOrder(orderId, status);
+        }
         
-        if (dataProvider && dataProvider.dataset.revenue) {
-            try {
-                data = JSON.parse(dataProvider.dataset.revenue);
-            } catch (e) {
-                console.error("JSON parsing error:", e);
-            }
+        // Handle COD confirmation
+        if (e.target.classList.contains('cod-btn')) {
+            const orderId = e.target.getAttribute('data-id');
+            confirmCodOrder(orderId);
         }
-
-        const labels = data.map(d => d.day);
-        const values = data.map(d => d.revenue);
-
-        console.log("FINAL DATA:", data);
-
-        const ctx = document.getElementById("revenueChart");
-
-        if (ctx) {
-            new Chart(ctx, {
-                type: "line",
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: "Revenue (₹)",
-                        data: values,
-                        borderColor: "#10b981",
-                        backgroundColor: "rgba(16, 185, 129, 0.1)",
-                        fill: true
-                    }]
-                }
-            });
-        }
-
-        const categoryCanvas = document.getElementById("categoryChart");
-        if (categoryCanvas) {
-            new Chart(categoryCanvas, {
-                type: "bar",
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: "Categories",
-                            data: [],
-                            backgroundColor: "#22c55e",
-                            borderRadius: 6
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { grid: { display: false } },
-                        y: { grid: { color: "rgba(55, 65, 81, 0.55)" } }
-                    }
-                }
-            });
-        }
-
-        const orderCanvas = document.getElementById("orderChart");
-        if (orderCanvas) {
-            new Chart(orderCanvas, {
-                type: "doughnut",
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            data: [],
-                            backgroundColor: ["#f59e0b", "#3b82f6", "#22c55e"],
-                            borderWidth: 0
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    cutout: "72%"
-                }
-            });
-        }
-    }
-
-    async function loadOrderDistribution() {
-        const res = await fetch('/admin/order-distribution');
-        const data = await res.json();
-
-        const labels = data.map(d => d.status);
-        const values = data.map(d => d.count);
-
-        const ctx = document.getElementById('orderChart');
-
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: values
-                }]
-            }
-        });
-    }
+    });
 });
+

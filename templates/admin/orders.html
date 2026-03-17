@@ -128,10 +128,12 @@
                                         <tr>
                                             <td>#{{ order.id }}</td>
                                             <td>{{ order.name }}</td>
-                                            <td>₹{{ "%.2f"|format(order.total_amount) }}</td>
+                                            <td>₹{{ order.total_amount }}</td>
                                             <td>
-                                                {% if order.order_status == 'confirmed' %}
+                                                {% if order.order_status == 'CONFIRMED' %}
                                                     <span class="status-badge status-confirmed">✔ Confirmed</span>
+                                                {% elif order.order_status == 'DELIVERED' %}
+                                                    <span class="status-badge status-delivered">✅ Delivered</span>
                                                 {% elif order.order_status == 'cancelled' %}
                                                     <span class="status-badge status-cancelled">✖ Cancelled</span>
                                                 {% else %}
@@ -141,13 +143,17 @@
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                {% if order.order_status == 'pending' %}
-                                                    <a href="/admin/confirm/{{ order.id }}" class="action-confirm">Confirm</a>
-                                                    <a href="/admin/cancel/{{ order.id }}" class="action-cancel">Cancel</a>
-                                                {% else %}
-                                                    <span class="action-none">No Action</span>
-                                                {% endif %}
+                                                {% if order.order_status == 'PENDING' %}
+        <button class="action-btn" data-id="{{ order.id }}" data-action="confirmed">Confirm</button>
+        <button class="action-btn cod-btn" data-id="{{ order.id }}">Confirm COD</button>
+        <button class="action-btn" data-id="{{ order.id }}" data-action="cancelled">Cancel</button>
+    {% elif order.order_status == 'CONFIRMED' %}
+        <button class="action-btn" data-id="{{ order.id }}" data-action="delivered">Mark Delivered</button>
+    {% else %}
+        <span class="action-none">No Action</span>
+    {% endif %}
                                             </td>
+
                                         </tr>
                                     {% endfor %}
                                 {% else %}
@@ -164,6 +170,7 @@
             </main>
         </div>
     </div>
+
 
 </body>
 </html>

@@ -109,7 +109,19 @@ def init_schema():
     """)
     
     cursor.execute("INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES ('meal_mode', 'all')")
-    db.commit()
+
+
+    try:
+        cursor.execute("SHOW COLUMNS FROM orders LIKE 'payment_status'")
+        if not cursor.fetchone():
+            cursor.execute("""
+                ALTER TABLE orders 
+                ADD COLUMN payment_status VARCHAR(20) DEFAULT 'UNPAID'
+            """)
+        db.commit()
+    except Exception as e:
+        print("Schema update error:", e)
+
 
 init_schema()
 
@@ -719,11 +731,14 @@ def create_order():
 
     total_amount = sum(item["price"] * item["quantity"] for item in cart)
 
-    # create order
+    # Order create logic per spec
+    payment_method = data.get("paymentMethod")
+    payment_status = "PAID" if payment_method == "card" else "UNPAID"
+
     cursor.execute("""
-    INSERT INTO orders (user_id,total_amount,order_status,created_at)
-    VALUES (%s,%s,%s,NOW())
-    """,(user_id,total_amount,"pending"))
+    INSERT INTO orders (user_id, total_amount, order_status, payment_status, created_at)
+    VALUES (%s, %s, %s, %s, NOW())
+    """, (user_id, total_amount, "PENDING", payment_status))
 
     db.commit()
 
@@ -789,12 +804,13 @@ def save_order():
     # Also persist summary in main orders table when a logged-in user is available
     try:
         if user_id:
+            payment_status = "PAID" if payment_method == "card" else "UNPAID"
             cursor.execute(
                 """
-                INSERT INTO orders (user_id,total_amount,order_status,created_at)
-                VALUES (%s,%s,%s,NOW())
+                INSERT INTO orders (user_id, total_amount, order_status, payment_status, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
                 """,
-                (user_id, float(total_amount), "confirmed"),
+                (user_id, float(total_amount), "PENDING", payment_status),
             )
             db.commit()
     except Exception as e:
@@ -1061,10 +1077,10 @@ def admin_dashboard():
         result = cursor.fetchone()
         total_orders = result["total"] if result else 0
 
-        # REVENUE
-        cursor.execute("SELECT SUM(total_amount) as total FROM orders WHERE order_status='confirmed'")
+        # REVENUE - FIXED: only PAID orders
+        cursor.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE payment_status='PAID'")
         result = cursor.fetchone()
-        total_revenue = result["total"] or 0
+        total_revenue = result["total_revenue"] or 0
 
         # LOW STOCK - safe handling
         try:
@@ -1075,12 +1091,12 @@ def admin_dashboard():
             print(f"Inventory query failed (table/column missing): {e}")
             low_stock_count = 0
 
-        # WEEKLY REVENUE - Fixed last 7 days
+        # WEEKLY REVENUE - Fixed last 7 days - CORRECTED to PAID only
         seven_days_ago = datetime.now().date() - timedelta(days=7)
         cursor.execute("""
             SELECT DATE(created_at) as date, SUM(total_amount) as revenue
             FROM orders
-            WHERE order_status='confirmed' AND DATE(created_at) >= %s
+            WHERE payment_status='PAID' AND DATE(created_at) >= %s
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
         """, (seven_days_ago,))
@@ -1340,6 +1356,8 @@ def admin_orders():
     return render_template("admin/orders.html", orders=orders)
 
 
+
+
 @app.route("/admin/orders/<int:order_id>/action", methods=["POST"])
 @admin_required
 def admin_order_action(order_id):
@@ -1359,6 +1377,53 @@ def admin_order_action(order_id):
 
     # For now redirect back to orders page; frontend uses full page navigation
     return render_template("admin/orders.html")
+
+@app.route('/admin/update-order-status', methods=['POST'])
+def update_order_status():
+    data = request.get_json()
+
+    order_id = data.get('order_id')
+    status = data.get('status')
+
+    if not order_id or not status:
+        return jsonify({"error": "order_id and status required"}), 400
+
+    if status.upper() == 'CONFIRMED':
+        cursor.execute("""
+            UPDATE orders 
+            SET order_status='CONFIRMED'
+            WHERE id=%s
+        """, (order_id,))
+    elif status.upper() == 'DELIVERED':
+        cursor.execute("""
+            UPDATE orders 
+            SET payment_status='PAID', order_status='DELIVERED'
+            WHERE id=%s
+        """, (order_id,))
+    else:
+        return jsonify({"error": "Invalid status. Use 'confirmed' or 'delivered'"}), 400
+
+    db.commit()
+
+    return jsonify({"success": True})
+
+
+@app.route('/admin/confirm-cod/<int:order_id>', methods=['POST'])
+@admin_required
+def confirm_cod(order_id):
+    """Mark COD order as PAID after admin confirmation"""
+    cursor.execute("""
+        UPDATE orders 
+        SET payment_status='PAID', order_status='CONFIRMED'
+        WHERE id=%s AND order_status='PENDING' AND payment_status='UNPAID'
+    """, (order_id,))
+    
+    if cursor.rowcount == 0:
+        return jsonify({"error": "Order not found or not eligible for COD confirmation"}), 400
+    
+    db.commit()
+    return jsonify({"success": True, "message": "COD order confirmed and marked as PAID"})
+
 
 @app.route("/admin/security-logs")
 @admin_required
@@ -1437,6 +1502,37 @@ def order_distribution():
     
     data = cursor.fetchall()
     return jsonify(data)
+
+@app.route('/admin/revenue-data')
+def admin_revenue_data():
+    """API endpoint for dashboard revenue chart - last 7 days with 0-filled dates"""
+    try:
+        seven_days_ago = datetime.now().date() - timedelta(days=7)
+        cursor.execute("""
+            SELECT DATE(created_at) as date, SUM(total_amount) as revenue
+            FROM orders
+            WHERE payment_status='PAID' AND DATE(created_at) >= %s
+            GROUP BY DATE(created_at)
+            ORDER BY DATE(created_at)
+        """, (seven_days_ago,))
+        revenue_data = cursor.fetchall()
+        
+        # Fill missing dates with 0
+        date_map = {row['date'].strftime('%Y-%m-%d'): float(row['revenue'] or 0) for row in revenue_data}
+        result = []
+        today = datetime.now().date()
+        for i in range(6, -1, -1):  # Last 7 days
+            d = today - timedelta(days=i)
+            key = d.strftime('%Y-%m-%d')
+            result.append({
+                'date': key,
+                'revenue': date_map.get(key, 0)
+            })
+        return jsonify(result)
+    except Exception as e:
+        print(f"Revenue data error: {e}")
+        return jsonify([]), 500
+
 
 @app.errorhandler(404)
 def page_not_found(e):
