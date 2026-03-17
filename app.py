@@ -1042,46 +1042,71 @@ def admin_required(f):
 @app.route("/admin/dashboard")
 @admin_required
 def admin_dashboard():
-    # Aggregate basic metrics for dashboard cards
-    cursor.execute("SELECT COUNT(*) AS total_users FROM users")
-    users_row = cursor.fetchone() or {"total_users": 0}
-
-    cursor.execute("SELECT COUNT(*) AS total_orders FROM orders WHERE order_status='confirmed'")
-    orders_row = cursor.fetchone() or {"total_orders": 0}
-
-    # Revenue = subtotal + GST (18%) + fixed delivery per completed order
-    cursor.execute("""
-        SELECT
-            COALESCE(SUM(total_amount * 1.18 + 50), 0) AS total_revenue
-        FROM orders
-        WHERE order_status='confirmed'
-    """)
-    revenue_row = cursor.fetchone() or {"total_revenue": 0}
-
-    # Inventory low stock (assumes inventory table with quantity & threshold columns)
-    low_stock_items = []
-    low_stock_count = 0
     try:
-        cursor.execute(
-            """
-            SELECT id, ingredient_name, quantity, threshold
-            FROM inventory
-            WHERE quantity < threshold
-            """
-        )
-        low_stock_items = cursor.fetchall()
-        low_stock_count = len(low_stock_items)
-    except Exception as e:
-        print(f"Warning reading inventory for dashboard: {e}")
+        # Safe defaults
+        total_users = 0
+        total_orders = 0
+        total_revenue = 0.0
+        revenue_list = []
+        low_stock_items = []
+        low_stock_count = 0
 
-    return render_template(
-        "admin/dashboard.html",
-        total_users=users_row["total_users"],
-        total_orders=orders_row["total_orders"],
-        total_revenue=revenue_row["total_revenue"],
-        low_stock_items=low_stock_items,
-        low_stock_items_count=low_stock_count,
-    )
+        # USERS
+        cursor.execute("SELECT COUNT(*) as total FROM users WHERE role='user'")
+        result = cursor.fetchone()
+        total_users = result["total"] if result else 0
+
+        # ORDERS
+        cursor.execute("SELECT COUNT(*) as total FROM orders")
+        result = cursor.fetchone()
+        total_orders = result["total"] if result else 0
+
+        # REVENUE
+        cursor.execute("SELECT SUM(total_amount) as total FROM orders WHERE order_status='confirmed'")
+        result = cursor.fetchone()
+        total_revenue = result["total"] or 0
+
+        # LOW STOCK - safe handling
+        try:
+            cursor.execute("SELECT COUNT(*) as total FROM inventory WHERE quantity < 10")
+            result = cursor.fetchone()
+            low_stock_count = result["total"] if result else 0
+        except Exception as e:
+            print(f"Inventory query failed (table/column missing): {e}")
+            low_stock_count = 0
+
+        # WEEKLY REVENUE - Fixed last 7 days
+        seven_days_ago = datetime.now().date() - timedelta(days=7)
+        cursor.execute("""
+            SELECT DATE(created_at) as date, SUM(total_amount) as revenue
+            FROM orders
+            WHERE order_status='confirmed' AND DATE(created_at) >= %s
+            GROUP BY DATE(created_at)
+            ORDER BY DATE(created_at)
+        """, (seven_days_ago,))
+        revenue_data = cursor.fetchall()
+
+        # Fill 7 days with data or 0
+        date_map = {row['date'].strftime('%Y-%m-%d'): row['revenue'] or 0 for row in revenue_data}
+        for i in range(7):
+            target_date = (datetime.now().date() - timedelta(days=i)).strftime('%Y-%m-%d')
+            revenue_list.append({
+                'day': target_date,
+                'revenue': date_map.get(target_date, 0)
+            })
+
+        return render_template(
+            "admin/dashboard.html",
+            total_users=total_users,
+            total_orders=total_orders,
+            total_revenue=total_revenue,
+            low_stock_items=low_stock_items,
+            low_stock_items_count=low_stock_count,
+            revenue=revenue_list
+        )
+    except Exception as e:
+        print(f"ERROR in admin_dashboard: {e}")
+        return render_template("500.html", error=str(e)), 500
 
 @app.route("/admin/users")
 @admin_required

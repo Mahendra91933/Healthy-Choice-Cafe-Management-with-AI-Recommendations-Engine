@@ -466,34 +466,30 @@ document.addEventListener("DOMContentLoaded", function () {
     // ----------------------------------------
 
     if (typeof Chart !== "undefined") {
-        const revenueCanvas = document.getElementById("revenueChart");
-        if (revenueCanvas) {
-            new Chart(revenueCanvas, {
-                type: "line",
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
+        document.addEventListener("DOMContentLoaded", function () {
+            const data = window.revenueData || [];
+
+            const labels = data.map(d => d.date);
+            const values = data.map(d => d.total);
+
+            const ctx = document.getElementById("revenueChart");
+
+            if (ctx) {
+                new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: [{
                             label: "Revenue",
-                            data: [],
-                            borderColor: "#22c55e",
-                            borderWidth: 2,
-                            tension: 0.45,
-                            fill: false
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { grid: { display: false } },
-                        y: { grid: { color: "rgba(55, 65, 81, 0.55)" } }
+                            data: values
+                        }]
                     }
-                }
-            });
-        }
+                });
+            }
+        });
+
+        // Initialize charts
+        initRevenueChart();
 
         const categoryCanvas = document.getElementById("categoryChart");
         if (categoryCanvas) {
