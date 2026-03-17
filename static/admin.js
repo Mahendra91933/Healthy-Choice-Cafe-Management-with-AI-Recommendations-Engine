@@ -452,6 +452,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // ----------------------------------------
+    // DASHBOARD - RECENT ORDERS
+    // ----------------------------------------
+
+    if (window.location.pathname.includes("/admin/dashboard")) {
+        loadRecentOrders();
+        loadOrderDistribution();
+    }
+
+    async function loadRecentOrders() {
+        const tbody = document.querySelector("#recentOrdersBody");
+        if (!tbody) return;
+
+        try {
+            const res = await fetch("/admin/recent-orders");
+            const data = await res.json();
+
+            tbody.innerHTML = "";
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4">No orders found</td></tr>`;
+                return;
+            }
+
+            data.forEach(order => {
+                const row = `
+                    <tr>
+                        <td>${order.id}</td>
+                        <td>${order.customer}</td>
+                        <td>₹${order.total}</td>
+                        <td>${order.status}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+
+        } catch (err) {
+            console.error("Recent orders error:", err);
+            tbody.innerHTML = `<tr><td colspan="4">Error loading data</td></tr>`;
+        }
+    }
+
+    // View All handler
+    document.querySelector(".card-header button.btn.btn-text")?.addEventListener("click", () => {
+        window.location.href = "/admin/orders";
+    });
+
+    // ----------------------------------------
     // Dashboard Metric Placeholders
     // ----------------------------------------
 
@@ -550,5 +597,25 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             });
         }
+    }
+
+    async function loadOrderDistribution() {
+        const res = await fetch('/admin/order-distribution');
+        const data = await res.json();
+
+        const labels = data.map(d => d.status);
+        const values = data.map(d => d.count);
+
+        const ctx = document.getElementById('orderChart');
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values
+                }]
+            }
+        });
     }
 });

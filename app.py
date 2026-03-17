@@ -1415,6 +1415,29 @@ def admin_logout():
     session.pop("admin_id", None)
     return render_template("admin/login.html")
 
+@app.route('/admin/recent-orders')
+def recent_orders():
+    cursor.execute("""
+        SELECT o.id, u.name AS customer, o.total_amount AS total, o.order_status AS status
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        ORDER BY o.created_at DESC
+        LIMIT 5
+    """)
+    orders = cursor.fetchall()
+    return jsonify(orders)
+
+@app.route('/admin/order-distribution')
+def order_distribution():
+    cursor.execute("""
+        SELECT status, COUNT(*) as count
+        FROM orders
+        GROUP BY status
+    """)
+    
+    data = cursor.fetchall()
+    return jsonify(data)
+
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template("404.html"), 404
