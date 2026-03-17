@@ -1,3 +1,4 @@
+
  // Login function for email/password login
 async function loginUser(e) {
   e.preventDefault();
