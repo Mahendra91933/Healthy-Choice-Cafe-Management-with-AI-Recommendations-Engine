@@ -239,16 +239,7 @@
             </main>
         </div>
     </div>
-
-   
-
-   
-
-<script>
-window.revenueData =  revenue | tojson;
-console.log('Revenue:', window.revenueData);
-</script>
-
+<div id="revenue-data-provider" data-revenue='{{ revenue | tojson | safe }}' style="display: none;"></div>
 
 </body>
 </html>

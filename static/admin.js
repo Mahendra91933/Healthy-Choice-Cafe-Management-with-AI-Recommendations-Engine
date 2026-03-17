@@ -462,70 +462,43 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     // ----------------------------------------
-    // Dashboard Charts (empty data placeholders)
+    // Dashboard Charts (FINAL CLEAN FIX)
     // ----------------------------------------
 
     if (typeof Chart !== "undefined") {
-        document.addEventListener("DOMContentLoaded", function () {
-            const data = window.revenueData || [];
-
-            const labels = data.map(d => d.date);
-            const values = data.map(d => d.total);
-
-            const ctx = document.getElementById("revenueChart");
-
-            if (ctx) {
-                new Chart(ctx, {
-                    type: "line",
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: "Revenue",
-                            data: values
-                        }]
-                    }
-                });
+        // Hidden div se data fetch karein
+        const dataProvider = document.getElementById("revenue-data-provider");
+        let data = [];
+        
+        if (dataProvider && dataProvider.dataset.revenue) {
+            try {
+                data = JSON.parse(dataProvider.dataset.revenue);
+            } catch (e) {
+                console.error("JSON parsing error:", e);
             }
-        });
+        }
 
-        // Initialize revenue chart properly
-        if (typeof Chart !== "undefined") {
-            const revenueCtx = document.getElementById("revenueChart");
-            if (revenueCtx) {
-                const data = window.revenueData || [];
-                const labels = data.map(d => d.day || d.date || 'No date');
-                const values = data.map(d => d.revenue || d.total || 0);
-                
-                console.log("Chart data:", {labels, values});
-                
-                new Chart(revenueCtx, {
-                    type: "line",
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: "Revenue (₹)",
-                            data: values,
-                            borderColor: "#10b981",
-                            backgroundColor: "rgba(16, 185, 129, 0.1)",
-                            fill: true,
-                            tension: 0.4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: true }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: { callback: value => "₹" + value }
-                            }
-                        }
-                    }
-                });
-            }
+        const labels = data.map(d => d.day);
+        const values = data.map(d => d.revenue);
+
+        console.log("FINAL DATA:", data);
+
+        const ctx = document.getElementById("revenueChart");
+
+        if (ctx) {
+            new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: "Revenue (₹)",
+                        data: values,
+                        borderColor: "#10b981",
+                        backgroundColor: "rgba(16, 185, 129, 0.1)",
+                        fill: true
+                    }]
+                }
+            });
         }
 
         const categoryCanvas = document.getElementById("categoryChart");

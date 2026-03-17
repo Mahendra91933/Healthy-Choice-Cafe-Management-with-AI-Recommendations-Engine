@@ -1094,16 +1094,11 @@ def admin_dashboard():
                 'day': target_date,
                 'revenue': date_map.get(target_date, 0)
             })
+        revenue_list.reverse()
         
         # Convert revenue_data dates for template JSON safety (though revenue_list used primarily)
         for row in revenue_data:
             row["date"] = str(row["date"])
-        for i in range(7):
-            target_date = (datetime.now().date() - timedelta(days=i)).strftime('%Y-%m-%d')
-            revenue_list.append({
-                'day': target_date,
-                'revenue': date_map.get(target_date, 0)
-            })
 
         # Recent orders (top 5)
         cursor.execute("""

@@ -1,8 +1,7 @@
-# Backend Revenue Fix Task
+# Task Progress: Update Revenue Data Handling
 
-- [x] Understand task & analyze files (search_files, read_file, brainstorm_plan)
-- [x] Create & confirm edit plan with user
-- [ ] Create TODO.md ✅
-- [x] Edit app.py: Fix revenue_data fetchall() + date conversion
-- [x] Test dashboard route (Flask running: http://127.0.0.1:3000/admin/dashboard - verify chart)
-- [x] Complete task
+## Plan Steps:
+- [ ] 1. Create TODO.md ✅
+- [ ] 2. Edit templates/admin/dashboard.html (replace script with data-provider div)
+- [x] 3. Edit static/admin.js (update Dashboard Charts data fetching logic)
+- [x] 4. Verify changes and complete task
