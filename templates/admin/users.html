@@ -121,12 +121,16 @@
                                     <th scope="col">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="usersTable">
-                                <tr class="placeholder-row">
-                                    <td colspan="5">
-                                        User records will appear here once loaded.
-                                    </td>
-                                </tr>
+                            <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user.name }}</td>
+                                <td>{{ user.email }}</td>
+                                <td>{{ user.role }}</td>
+                                <td>{{ user.created_at }}</td>
+                                <td></td>
+                            </tr>
+                            {% endfor %}
                             </tbody>
                         </table>
                     </div>

@@ -1086,15 +1086,15 @@ def admin_dashboard():
 @app.route("/admin/users")
 @admin_required
 def admin_users():
-    cursor.execute(
-        """
-        SELECT id, name, email, role, created_at
-        FROM users
-        ORDER BY created_at DESC
-        """
-    )
-    users_list = cursor.fetchall()
-    return render_template("admin/users.html", users=users_list)
+    cursor.execute("""
+        SELECT id, name, email, role, created_at 
+        FROM users 
+        WHERE role = 'user'
+        ORDER BY id DESC
+    """)
+    users = cursor.fetchall()
+
+    return render_template('admin/users.html', users=users)
 
 @app.route("/admin/menu")
 @admin_required
