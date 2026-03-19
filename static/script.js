@@ -863,7 +863,6 @@ function loadCartPage() {
             <div class="nutrition-row"><span>Fats</span><span>${nutritionTotals.fats.toFixed(1)}g</span></div>
             <div class="nutrition-row"><span>Calories</span><span>${Math.round(nutritionTotals.calories)}</span></div>
         </div>
-        <button class="checkout-btn" style="margin-bottom:10px;" onclick="placeOrder()">Place Order</button>
         <button class="checkout-btn" onclick="proceedToPayment()">Proceed to Payment</button>
         <div style="font-size:12px;color:#777;margin-top:6px;">Payment will be processed automatically • Secure checkout</div>
     `;
@@ -945,45 +944,50 @@ function showProcessingOverlay() {
     return () => { clearInterval(timer); document.body.removeChild(overlay); };
 }
 
-function proceedToPayment() {
-    const user = JSON.parse(localStorage.getItem('user'));
-    if (!user || !user.id) {
-        alert('Please login to continue to payment.');
-        window.location.href = '/login';
+async function proceedToPayment() {
+    const user = JSON.parse(localStorage.getItem('user')) || {};
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
+    
+    if (cart.length === 0) {
+        alert("Your cart is empty!");
         return;
     }
 
-    // Ensure latest order is confirmed by admin before allowing payment
-    fetch(`http://127.0.0.1:3000/user-orders/${user.id}`)
-        .then(resp => resp.ok ? resp.json() : [])
-        .then(orders => {
-            if (!orders || !orders.length) {
-                alert('You have no orders to pay for. Please place an order first.');
-                return;
-            }
+    const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const gst = totalPrice * 0.18;
+    const deliveryFee = 50;
+    const finalTotal = totalPrice + gst + deliveryFee;
 
-            const latest = orders[0];
-            if (latest.order_status === 'cancelled') {
-                alert('Your latest order was cancelled by the admin. Please place a new order.');
-                return;
-            }
-
-            if (latest.order_status !== 'confirmed') {
-                alert('Your latest order is not yet confirmed by the admin. Please wait for confirmation before paying.');
-                return;
-            }
-
-            localStorage.setItem('latestOrderId', latest.id);
-
-            const hide = showProcessingOverlay();
-            setTimeout(() => {
-                hide && hide();
-                window.location.href = '/payment';
-            }, 1600);
-        })
-        .catch(() => {
-            alert('Unable to check order status. Please try again.');
+    try {
+        const response = await fetch('http://127.0.0.1:3000/initiate-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: user.id || null,
+                total_amount: finalTotal,
+                cart: cart
+            })
         });
+
+        if (!response.ok) {
+            throw new Error('Failed to initiate order');
+        }
+
+        const data = await response.json();
+        
+        // Save the pending order ID to complete it later on payment
+        localStorage.setItem('currentOrderId', data.order_id);
+
+        const hide = showProcessingOverlay();
+        setTimeout(() => {
+            hide && hide();
+            window.location.href = '/payment';
+        }, 1600);
+
+    } catch (error) {
+        alert('Unable to process order. Please try again.');
+        console.error(error);
+    }
 }
 
 // Function to load payment page
@@ -1099,6 +1103,12 @@ async function processCardPayment(event) {
     }
 
     try {
+        const orderId = localStorage.getItem('currentOrderId');
+        if (!orderId) {
+            alert('No active order found. Please return to cart and try again.');
+            return;
+        }
+
         // Save order to database
         const saveResponse = await fetch('http://127.0.0.1:3000/save-order', {
             method: 'POST',
@@ -1106,6 +1116,7 @@ async function processCardPayment(event) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                order_id: orderId,
                 user_id: user.id || null,
                 name: customerName,
                 mobile: customerMobile,
@@ -1168,6 +1179,12 @@ async function processCodPayment() {
         }
 
         try {
+            const orderId = localStorage.getItem('currentOrderId');
+            if (!orderId) {
+                alert('No active order found. Please return to cart and try again.');
+                return;
+            }
+
             // Save order to database
             const saveResponse = await fetch('http://127.0.0.1:3000/save-order', {
                 method: 'POST',
@@ -1175,6 +1192,7 @@ async function processCodPayment() {
                     'Content-Type': 'application/json'
                 },
             body: JSON.stringify({
+                order_id: orderId,
                 user_id: user.id || null,
                 name: customerName,
                 mobile: customerMobile,

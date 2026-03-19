@@ -733,7 +733,7 @@ def create_order():
 
     # Order create logic per spec
     payment_method = data.get("paymentMethod")
-    payment_status = "PAID" if payment_method == "card" else "UNPAID"
+    payment_status = "UNPAID"
 
     cursor.execute("""
     INSERT INTO orders (user_id, total_amount, order_status, payment_status, created_at)
@@ -758,22 +758,42 @@ def create_order():
         "order_id":order_id
     })
 
-@app.route('/user-orders/<int:user_id>')
-def get_user_orders(user_id):
+@app.route('/initiate-order', methods=['POST'])
+def initiate_order():
+    data = request.get_json()
+    user_id = data.get("user_id")
+    total_amount = data.get("total_amount")
+    cart = data.get("cart")
 
-    cursor.execute("""
-    SELECT * FROM orders
-    WHERE user_id=%s
-    ORDER BY created_at DESC
-    """,(user_id,))
+    if not cart:
+        return jsonify({"error":"Cart empty"}), 400
 
-    orders = cursor.fetchall()
+    try:
+        cursor.execute("""
+        INSERT INTO orders (user_id, total_amount, order_status, payment_status, created_at)
+        VALUES (%s, %s, %s, %s, NOW())
+        """, (user_id, float(total_amount), "PENDING", "UNPAID"))
+        db.commit()
 
-    return jsonify(orders)
+        order_id = cursor.lastrowid
+
+        # Insert order items
+        for item in cart:
+            cursor.execute("""
+            INSERT INTO order_items (order_id, menu_item_id, quantity, price)
+            VALUES (%s, %s, %s, %s)
+            """, (order_id, item["id"], item["quantity"], item["price"]))
+        db.commit()
+
+        return jsonify({"success": True, "order_id": order_id})
+    except Exception as e:
+        print(f"Error initiating order: {e}")
+        return jsonify({"error": "Failed to initiate order"}), 500
 
 @app.route('/save-order', methods=['POST'])
 def save_order():
     data = request.get_json()
+    order_id = data.get('order_id')
     name = data.get('name')
     mobile = data.get('mobile')
     email = data.get('email')
@@ -783,12 +803,12 @@ def save_order():
     diet_preference = data.get('diet_preference')  # 'diet', 'non-diet', or None
     user_id = data.get('user_id')  # Optional for logged-in users
 
-    if not name or not mobile or not email or not order_data or not total_amount or not payment_method:
-        return jsonify({'error': 'All fields are required'}), 400
+    if not order_id or not total_amount or not payment_method:
+        return jsonify({'error': 'Missing required fields'}), 400
 
     # Save to guest_orders list (for quick profile analytics)
     new_order = {
-        'id': len(guest_orders) + 1,
+        'id': order_id,
         'user_id': user_id,
         'name': name,
         'mobile': mobile,
@@ -801,25 +821,26 @@ def save_order():
     }
     guest_orders.append(new_order)
 
-    # Also persist summary in main orders table when a logged-in user is available
+    # Persist the final status to the DB
     try:
-        if user_id:
-            payment_status = "PAID" if payment_method == "card" else "UNPAID"
-            cursor.execute(
-                """
-                INSERT INTO orders (user_id, total_amount, order_status, payment_status, created_at)
-                VALUES (%s, %s, %s, %s, NOW())
-                """,
-                (user_id, float(total_amount), "PENDING", payment_status),
-            )
-            db.commit()
+        payment_status = "PAID" if payment_method == "Card Payment" else "UNPAID"
+        order_status = "PAID" if payment_method == "Card Payment" else "COD_CONFIRMED"
+        
+        cursor.execute(
+            """
+            UPDATE orders
+            SET order_status = %s, payment_status = %s
+            WHERE id = %s
+            """,
+            (order_status, payment_status, order_id),
+        )
+        db.commit()
     except Exception as e:
-        # Do not break the flow if DB insert fails; guest_orders still has the record
         print(f"Warning persisting save_order to DB: {e}")
 
-    print(f"Guest order saved: {name}, {mobile}, {email}, {total_amount}, diet: {diet_preference}, user_id: {user_id}")
+    print(f"Order completed: {name}, {mobile}, {email}, {total_amount}, diet: {diet_preference}, user_id: {user_id}, order_id: {order_id}")
 
-    return jsonify({'success': True, 'message': 'Order saved successfully', 'order_id': new_order['id']})
+    return jsonify({'success': True, 'message': 'Payment successful', 'order_id': order_id})
 
 @app.route('/get-guest-orders', methods=['POST'])
 def get_guest_orders():
@@ -1077,8 +1098,8 @@ def admin_dashboard():
         result = cursor.fetchone()
         total_orders = result["total"] if result else 0
 
-        # REVENUE - FIXED: only PAID orders
-        cursor.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE payment_status='PAID'")
+        # REVENUE - FIXED: only DELIVERED orders
+        cursor.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE order_status='DELIVERED'")
         result = cursor.fetchone()
         total_revenue = result["total_revenue"] or 0
 
@@ -1091,12 +1112,12 @@ def admin_dashboard():
             print(f"Inventory query failed (table/column missing): {e}")
             low_stock_count = 0
 
-        # WEEKLY REVENUE - Fixed last 7 days - CORRECTED to PAID only
+        # WEEKLY REVENUE - Fixed last 7 days - CORRECTED to DELIVERED only
         seven_days_ago = datetime.now().date() - timedelta(days=7)
         cursor.execute("""
             SELECT DATE(created_at) as date, SUM(total_amount) as revenue
             FROM orders
-            WHERE payment_status='PAID' AND DATE(created_at) >= %s
+            WHERE order_status='DELIVERED' AND DATE(created_at) >= %s
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
         """, (seven_days_ago,))
@@ -1362,10 +1383,8 @@ def admin_orders():
 @admin_required
 def admin_order_action(order_id):
     action = request.form.get("action")
-    if action == "confirm":
-        new_status = "confirmed"
-    elif action == "cancel":
-        new_status = "cancelled"
+    if action == "delivered":
+        new_status = "DELIVERED"
     else:
         return jsonify({"error": "Invalid action"}), 400
 
@@ -1388,41 +1407,18 @@ def update_order_status():
     if not order_id or not status:
         return jsonify({"error": "order_id and status required"}), 400
 
-    if status.upper() == 'CONFIRMED':
-        cursor.execute("""
-            UPDATE orders 
-            SET order_status='CONFIRMED'
-            WHERE id=%s
-        """, (order_id,))
-    elif status.upper() == 'DELIVERED':
+    if status.upper() == 'DELIVERED':
         cursor.execute("""
             UPDATE orders 
             SET payment_status='PAID', order_status='DELIVERED'
             WHERE id=%s
         """, (order_id,))
     else:
-        return jsonify({"error": "Invalid status. Use 'confirmed' or 'delivered'"}), 400
+        return jsonify({"error": "Invalid status. Use 'delivered'"}), 400
 
     db.commit()
 
     return jsonify({"success": True})
-
-
-@app.route('/admin/confirm-cod/<int:order_id>', methods=['POST'])
-@admin_required
-def confirm_cod(order_id):
-    """Mark COD order as PAID after admin confirmation"""
-    cursor.execute("""
-        UPDATE orders 
-        SET payment_status='PAID', order_status='CONFIRMED'
-        WHERE id=%s AND order_status='PENDING' AND payment_status='UNPAID'
-    """, (order_id,))
-    
-    if cursor.rowcount == 0:
-        return jsonify({"error": "Order not found or not eligible for COD confirmation"}), 400
-    
-    db.commit()
-    return jsonify({"success": True, "message": "COD order confirmed and marked as PAID"})
 
 
 @app.route("/admin/security-logs")
@@ -1511,7 +1507,7 @@ def admin_revenue_data():
         cursor.execute("""
             SELECT DATE(created_at) as date, SUM(total_amount) as revenue
             FROM orders
-            WHERE payment_status='PAID' AND DATE(created_at) >= %s
+            WHERE order_status='DELIVERED' AND DATE(created_at) >= %s
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
         """, (seven_days_ago,))
