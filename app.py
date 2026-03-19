@@ -98,6 +98,10 @@ def init_schema():
     cursor.execute("SHOW COLUMNS FROM menu_items LIKE 'category'")
     if not cursor.fetchone():
         cursor.execute("ALTER TABLE menu_items ADD COLUMN category VARCHAR(20) DEFAULT 'all'")
+        
+    cursor.execute("SHOW COLUMNS FROM users LIKE 'health_coins'")
+    if not cursor.fetchone():
+        cursor.execute("ALTER TABLE users ADD COLUMN health_coins INT DEFAULT 0")
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_settings (
@@ -105,6 +109,15 @@ def init_schema():
             setting_key VARCHAR(50) UNIQUE,
             setting_value VARCHAR(50),
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS security_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            admin_id INT,
+            action VARCHAR(255),
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
@@ -273,7 +286,13 @@ def login():
     return jsonify({
         "success":True,
         "message":"Login successful",
-        "userId":user["id"]
+        "userId":user["id"],
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "email": user["email"],
+            "mobile": user["mobile"]
+        }
     })
 
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -308,6 +327,10 @@ def admin_login():
         return jsonify({"error": "Invalid password"}), 401
 
     session["admin_id"] = admin["id"]
+    
+    cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                   (admin["id"], f"Admin login: {email}"))
+    db.commit()
 
     return jsonify({
         "success": True,
@@ -935,21 +958,14 @@ def profile_page():
 
     return render_template('profile.html')
 
-@app.route('/profile-data', methods=['POST'])
-def get_profile_data():
-    data = request.get_json()
-    mobile = data.get('mobile')
-
+@app.route('/api/user/profile', methods=['GET'])
+def get_user_profile_api():
+    mobile = request.args.get('mobile')
     if not mobile:
         return jsonify({'error': 'Mobile number is required'}), 400
 
-    # Fetch user from database
     cursor.execute(
-        """
-        SELECT id, name, email, mobile, dob, gender
-        FROM users
-        WHERE mobile=%s
-        """,
+        "SELECT id, name, email, mobile, dob, gender, health_coins FROM users WHERE mobile=%s",
         (mobile,),
     )
     user = cursor.fetchone()
@@ -957,102 +973,97 @@ def get_profile_data():
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    user_data = {
-        'id': user['id'],
-        'name': user['name'],
-        'mobile': user['mobile'],
-        'email': user['email'],
-        'dob': user.get('dob'),
-        'gender': user.get('gender'),
-    }
+    return jsonify({'user': user})
 
-    # Login statistics from database
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS total
-        FROM login_history
-        WHERE user_id=%s
-        """,
-        (user['id'],),
-    )
-    login_count_row = cursor.fetchone()
-    login_count_value = login_count_row['total'] if login_count_row else 0
+@app.route('/api/user/stats', methods=['GET'])
+def get_user_stats_api():
+    mobile = request.args.get('mobile')
+    if not mobile:
+        return jsonify({'error': 'Mobile number is required'}), 400
 
-    cursor.execute(
-        """
-        SELECT id, login_time, ip_address
-        FROM login_history
-        WHERE user_id=%s
-        ORDER BY login_time DESC
-        """,
-        (user['id'],),
-    )
-    login_rows = cursor.fetchall()
-    history_data = [
-        {
-            'id': row['id'],
-            'login_time': row['login_time'].isoformat() if row['login_time'] else None,
-            'ip_address': row.get('ip_address'),
-        }
-        for row in login_rows
-    ]
+    cursor.execute("SELECT id FROM users WHERE mobile=%s", (mobile,))
+    user = cursor.fetchone()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+        
+    user_id = user['id']
 
-    # Orders and nutritional insights
-    # NOTE: nutrition is still derived from in-memory guest_orders for now
-    orders = [o for o in guest_orders if o['mobile'] == mobile]
-    orders.sort(key=lambda x: x['order_date'], reverse=True)
+    cursor.execute("SELECT COUNT(*) as total FROM orders WHERE user_id=%s AND order_status='DELIVERED'", (user_id,))
+    total_orders = cursor.fetchone()['total'] or 0
 
-    # Calculate nutritional insights
-    total_orders = len(orders)
     if total_orders > 0:
-        total_protein = 0
-        total_carbs = 0
-        total_fats = 0
-        total_calories = 0
+        cursor.execute("""
+            SELECT 
+                SUM(mi.protein * oi.quantity) as tp,
+                SUM(mi.carbs * oi.quantity) as tc,
+                SUM(mi.fats * oi.quantity) as tf,
+                SUM(mi.calories * oi.quantity) as tcal
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            JOIN menu_items mi ON oi.menu_item_id = mi.id
+            WHERE o.user_id=%s AND o.order_status='DELIVERED'
+        """, (user_id,))
+        macros = cursor.fetchone()
 
-        for order in orders:
-            try:
-                items = eval(order['order_data'])  # Assuming order_data is a string representation of list
-                for item in items:
-                    total_protein += (item.get('protein', 0) * item.get('quantity', 1))
-                    total_carbs += (item.get('carbs', 0) * item.get('quantity', 1))
-                    total_fats += (item.get('fats', 0) * item.get('quantity', 1))
-                    total_calories += (item.get('calories', 0) * item.get('quantity', 1))
-            except:
-                pass
+        total_protein = float(macros['tp'] or 0)
+        total_carbs = float(macros['tc'] or 0)
+        total_fats = float(macros['tf'] or 0)
+        total_calories = float(macros['tcal'] or 0)
 
         avg_protein = total_protein / total_orders
         avg_carbs = total_carbs / total_orders
         avg_fats = total_fats / total_orders
         avg_calories = total_calories / total_orders
+
+        cursor.execute("""
+            SELECT mi.diet_type, COUNT(*) as c
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            JOIN menu_items mi ON oi.menu_item_id = mi.id
+            WHERE o.user_id=%s AND o.order_status='DELIVERED'
+            GROUP BY mi.diet_type
+            ORDER BY c DESC
+            LIMIT 1
+        """, (user_id,))
+        pref_row = cursor.fetchone()
+        preference = pref_row['diet_type'].capitalize() if (pref_row and pref_row['diet_type']) else 'Mixed'
     else:
         avg_protein = avg_carbs = avg_fats = avg_calories = 0
-
-    # Determine preference
-    diet_orders = sum(1 for o in orders if o['diet_preference'] == 'diet')
-    non_diet_orders = sum(1 for o in orders if o['diet_preference'] == 'non-diet')
-    if diet_orders > non_diet_orders:
-        preference = 'Diet'
-    elif non_diet_orders > diet_orders:
-        preference = 'Non-Diet'
-    else:
+        total_protein = total_carbs = total_fats = total_calories = 0
         preference = 'Mixed'
 
     return jsonify({
-        'user': user_data,
-        'loginCount': login_count_value,
-        'loginHistory': history_data,
         'totalOrders': total_orders,
         'avgProtein': round(avg_protein, 1),
         'avgCarbs': round(avg_carbs, 1),
         'avgFats': round(avg_fats, 1),
         'avgCalories': round(avg_calories),
-        'totalProtein': round(total_protein, 1) if total_orders > 0 else 0,
-        'totalCarbs': round(total_carbs, 1) if total_orders > 0 else 0,
-        'totalFats': round(total_fats, 1) if total_orders > 0 else 0,
-        'totalCalories': round(total_calories) if total_orders > 0 else 0,
+        'totalProtein': round(total_protein, 1),
+        'totalCarbs': round(total_carbs, 1),
+        'totalFats': round(total_fats, 1),
+        'totalCalories': round(total_calories),
         'preference': preference
     })
+
+@app.route('/api/user/recommendations', methods=['GET'])
+def get_user_recommendations_api():
+    mobile = request.args.get('mobile')
+    
+    # Just return some active healthy items for now as AI reco
+    cursor.execute("""
+        SELECT id, name, price, image_url 
+        FROM menu_items 
+        WHERE is_active = 1 AND category = 'healthy'
+        LIMIT 3
+    """)
+    items = cursor.fetchall()
+    
+    # Format image paths if needed
+    for item in items:
+        if item['image_url'] and '/static/images/' not in item['image_url']:
+            item['image_url'] = '/static/images/' + item['image_url'].split('/')[-1]
+            
+    return jsonify({"recommendations": items})
 
 @app.route('/welcome', methods=['GET'])
 def welcome():
@@ -1147,25 +1158,20 @@ def admin_dashboard():
         """)
         recent_orders = cursor.fetchall()
 
-        # Category sales data (aggregate or static fallback)
+        # Category sales data
         try:
             cursor.execute("""
-                SELECT mi.category, COUNT(*) as order_count, SUM(oi.price * oi.quantity) as total_sales
+                SELECT mi.category, COUNT(*) as order_count
                 FROM order_items oi
                 JOIN menu_items mi ON oi.menu_item_id = mi.id
                 GROUP BY mi.category
-                ORDER BY total_sales DESC
-                LIMIT 5
+                ORDER BY order_count DESC
             """)
             category_raw = cursor.fetchall()
-            category_data = [{'label': row['category'] or 'Uncategorized', 'value': row['total_sales'] or 0} for row in category_raw]
-        except:
-            category_data = [
-                {'label': 'Breakfast', 'value': 1250},
-                {'label': 'Lunch', 'value': 3200},
-                {'label': 'Dinner', 'value': 1800},
-                {'label': 'Snacks', 'value': 890}
-            ]
+            category_data = [{'label': row['category'] or 'Uncategorized', 'value': row['order_count'] or 0} for row in category_raw]
+        except Exception as e:
+            print("Categories error:", e)
+            category_data = []
 
         # Order status distribution
         cursor.execute("""
@@ -1248,6 +1254,12 @@ def admin_menu_items():
         )
         db.commit()
         new_id = cursor.lastrowid
+        
+        admin_id = session.get("admin_id", 0)
+        cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                       (admin_id, f"Added menu item: {name} (ID: {new_id})"))
+        db.commit()
+        
         cursor.execute("SELECT * FROM menu_items WHERE id=%s", (new_id,))
         item = cursor.fetchone()
         return jsonify({"success": True, "item": item})
@@ -1267,6 +1279,12 @@ def admin_update_menu_item(item_id):
         try:
             cursor.execute("DELETE FROM menu_items WHERE id=%s", (item_id,))
             db.commit()
+            
+            admin_id = session.get("admin_id", 0)
+            cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                           (admin_id, f"Deleted menu item ID: {item_id}"))
+            db.commit()
+            
             return jsonify({"success": True})
         except Exception as e:
             print(f"Error deleting menu item {item_id}: {e}")
@@ -1310,6 +1328,12 @@ def admin_update_menu_item(item_id):
             tuple(values),
         )
         db.commit()
+        
+        admin_id = session.get("admin_id", 0)
+        cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                       (admin_id, f"Updated menu item ID: {item_id}"))
+        db.commit()
+        
         cursor.execute("SELECT * FROM menu_items WHERE id=%s", (item_id,))
         item = cursor.fetchone()
         return jsonify({"success": True, "item": item})
@@ -1383,18 +1407,41 @@ def admin_orders():
 @admin_required
 def admin_order_action(order_id):
     action = request.form.get("action")
+    admin_id = session.get("admin_id", 0)
+
     if action == "delivered":
         new_status = "DELIVERED"
+        
+        cursor.execute("SELECT order_status, user_id FROM orders WHERE id=%s", (order_id,))
+        order_info = cursor.fetchone()
+        
+        if order_info and order_info['order_status'] != 'DELIVERED':
+            cursor.execute(
+                "UPDATE orders SET order_status=%s, payment_status='PAID' WHERE id=%s",
+                (new_status, order_id),
+            )
+            
+            # Health Coins Logic
+            user_id = order_info['user_id']
+            if user_id:
+                cursor.execute("""
+                    SELECT SUM(oi.quantity) as healthy_items
+                    FROM order_items oi
+                    JOIN menu_items mi ON oi.menu_item_id = mi.id
+                    WHERE oi.order_id = %s AND mi.category = 'healthy'
+                """, (order_id,))
+                res = cursor.fetchone()
+                if res and res['healthy_items']:
+                    coins_to_add = int(res['healthy_items']) * 10
+                    if coins_to_add > 0:
+                        cursor.execute("UPDATE users SET health_coins = health_coins + %s WHERE id = %s", (coins_to_add, user_id))
+            
+            cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                           (admin_id, f"Updated order {order_id} status to {new_status} via form"))
+            db.commit()
     else:
         return jsonify({"error": "Invalid action"}), 400
 
-    cursor.execute(
-        "UPDATE orders SET order_status=%s WHERE id=%s",
-        (new_status, order_id),
-    )
-    db.commit()
-
-    # For now redirect back to orders page; frontend uses full page navigation
     return render_template("admin/orders.html")
 
 @app.route('/admin/update-order-status', methods=['POST'])
@@ -1407,12 +1454,36 @@ def update_order_status():
     if not order_id or not status:
         return jsonify({"error": "order_id and status required"}), 400
 
+    admin_id = session.get("admin_id", 0)
+
     if status.upper() == 'DELIVERED':
-        cursor.execute("""
-            UPDATE orders 
-            SET payment_status='PAID', order_status='DELIVERED'
-            WHERE id=%s
-        """, (order_id,))
+        cursor.execute("SELECT order_status, user_id FROM orders WHERE id=%s", (order_id,))
+        order_info = cursor.fetchone()
+        
+        if order_info and order_info['order_status'] != 'DELIVERED':
+            cursor.execute("""
+                UPDATE orders 
+                SET payment_status='PAID', order_status='DELIVERED'
+                WHERE id=%s
+            """, (order_id,))
+            
+            # Health Coins Logic
+            user_id = order_info['user_id']
+            if user_id:
+                cursor.execute("""
+                    SELECT SUM(oi.quantity) as healthy_items
+                    FROM order_items oi
+                    JOIN menu_items mi ON oi.menu_item_id = mi.id
+                    WHERE oi.order_id = %s AND mi.category = 'healthy'
+                """, (order_id,))
+                res = cursor.fetchone()
+                if res and res['healthy_items']:
+                    coins_to_add = int(res['healthy_items']) * 10
+                    if coins_to_add > 0:
+                        cursor.execute("UPDATE users SET health_coins = health_coins + %s WHERE id = %s", (coins_to_add, user_id))
+            
+            cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                           (admin_id, f"Updated order {order_id} status to DELIVERED"))
     else:
         return jsonify({"error": "Invalid status. Use 'delivered'"}), 400
 
@@ -1424,16 +1495,16 @@ def update_order_status():
 @app.route("/admin/security-logs")
 @admin_required
 def admin_logs():
-    # Fetch recent login events for audit
+    # Fetch recent security events
     cursor.execute(
         """
-        SELECT lh.id,
-               lh.login_time,
-               lh.ip_address,
+        SELECT sl.id,
+               sl.timestamp as login_time,
+               sl.action,
                u.email AS user_email
-        FROM login_history lh
-        JOIN users u ON u.id = lh.user_id
-        ORDER BY lh.login_time DESC
+        FROM security_logs sl
+        LEFT JOIN users u ON u.id = sl.admin_id
+        ORDER BY sl.timestamp DESC
         LIMIT 200
         """
     )
@@ -1447,7 +1518,12 @@ def admin_settings():
         cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key='meal_mode'")
         result = cursor.fetchone()
         meal_mode = result['setting_value'] if result else 'all'
-        return jsonify({"meal_mode": meal_mode})
+        
+        # Serve JSON if requested via API (like fetch), else serve the page
+        if 'application/json' in request.headers.get('Accept', '') or request.headers.get('Content-Type') == 'application/json':
+            return jsonify({"meal_mode": meal_mode})
+            
+        return render_template("admin/settings.html", meal_mode=meal_mode)
     
     if request.method == "POST":
         data = request.get_json() or {}
@@ -1461,9 +1537,13 @@ def admin_settings():
             ON DUPLICATE KEY UPDATE setting_value=%s
         """, (meal_mode, meal_mode))
         db.commit()
+        
+        admin_id = session.get("admin_id", 0)
+        cursor.execute("INSERT INTO security_logs (admin_id, action) VALUES (%s, %s)",
+                       (admin_id, f"Changed meal mode to: {meal_mode}"))
+        db.commit()
+        
         return jsonify({"success": True, "meal_mode": meal_mode})
-    
-    return render_template("admin/settings.html")
 
 @app.route("/admin")
 def admin_index():
@@ -1491,9 +1571,9 @@ def recent_orders():
 @app.route('/admin/order-distribution')
 def order_distribution():
     cursor.execute("""
-        SELECT status, COUNT(*) as count
+        SELECT order_status as status, COUNT(*) as count
         FROM orders
-        GROUP BY status
+        GROUP BY order_status
     """)
     
     data = cursor.fetchall()

@@ -131,11 +131,30 @@
                                 </tr>
                             </thead>
                             <tbody id="logsTable">
+                                {% if logs %}
+                                    {% for log in logs %}
+                                    <tr>
+                                        <td>{{ log.login_time }}</td>
+                                        <td>{{ log.user_email or 'System / Unknown' }}</td>
+                                        <td>{{ log.action }}</td>
+                                        <td>
+                                            {% if 'login' in log.action.lower() %}Auth
+                                            {% elif 'menu' in log.action.lower() %}Menu
+                                            {% elif 'order' in log.action.lower() %}Orders
+                                            {% elif 'mode' in log.action.lower() %}Settings
+                                            {% else %}Other
+                                            {% endif %}
+                                        </td>
+                                        <td>ID: {{ log.id }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
                                 <tr class="placeholder-row">
                                     <td colspan="5">
                                         Security events will appear here once loaded.
                                     </td>
                                 </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>

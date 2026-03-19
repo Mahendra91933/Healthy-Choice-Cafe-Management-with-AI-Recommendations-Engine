@@ -98,6 +98,13 @@
                                 <div class="small-value" id="prefText">-</div>
                             </div>
                         </div>
+                        <div class="stat-row" style="margin-top: 15px;">
+                            <div class="small-card" style="width: 100%; background: linear-gradient(135deg, #10b981, #059669); color: white;">
+                                <div class="small-title" style="color: rgba(255,255,255,0.8);">Health Coins</div>
+                                <div class="small-value" id="healthCoinsDisplay" style="color: white; font-size: 28px;">0</div>
+                                <div style="font-size: 12px; margin-top: 5px; color: rgba(255,255,255,0.9);">Earn 10 coins per healthy item</div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="insights-card">
@@ -150,20 +157,19 @@
             const user = JSON.parse(stored);
 
             try {
-                // Fetch full profile + stats from backend
-                const resp = await fetch("/profile-data", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ mobile: user.mobile })
-                });
+                // Fetch full profile + stats + recos from backend
+                const profileResp = await fetch(`/api/user/profile?mobile=${user.mobile}`);
+                const statsResp = await fetch(`/api/user/stats?mobile=${user.mobile}`);
+                const recoResp = await fetch(`/api/user/recommendations?mobile=${user.mobile}`);
 
-                if (!resp.ok) {
+                if (!profileResp.ok || !statsResp.ok) {
                     console.error("Failed to load profile data");
                     return;
                 }
 
-                const payload = await resp.json();
-                const data = payload.user || {};
+                const profileData = await profileResp.json();
+                const statsData = await statsResp.json();
+                const data = profileData.user || {};
 
                 // Populate form fields
                 document.getElementById("name").value = data.name || "";
@@ -179,16 +185,22 @@
                 document.getElementById("profileMobileDisplay").textContent = data.mobile || "-";
                 document.getElementById("profileDOBDisplay").textContent = data.dob || "-";
                 document.getElementById("profileGenderDisplay").textContent = data.gender || "-";
+                
+                // Show health coins
+                const coinsDiv = document.getElementById("healthCoinsDisplay");
+                if (coinsDiv) {
+                    coinsDiv.textContent = data.health_coins || 0;
+                }
 
                 // Orders and nutrition statistics
-                document.getElementById("totalOrdersCount").textContent = payload.totalOrders ?? 0;
-                document.getElementById("prefText").textContent = payload.preference || "-";
+                document.getElementById("totalOrdersCount").textContent = statsData.totalOrders ?? 0;
+                document.getElementById("prefText").textContent = statsData.preference || "-";
 
                 // Totals for nutrition insights
-                const totalProtein = payload.totalProtein ?? 0;
-                const totalCarbs = payload.totalCarbs ?? 0;
-                const totalFats = payload.totalFats ?? 0;
-                const totalCalories = payload.totalCalories ?? 0;
+                const totalProtein = statsData.totalProtein ?? 0;
+                const totalCarbs = statsData.totalCarbs ?? 0;
+                const totalFats = statsData.totalFats ?? 0;
+                const totalCalories = statsData.totalCalories ?? 0;
 
                 document.getElementById("totalProtein").textContent = totalProtein + "g";
                 document.getElementById("totalCarbs").textContent = totalCarbs + "g";
@@ -225,11 +237,40 @@
                                 backgroundColor: ["#2e7d32", "#7a3b41", "#f39c12"]
                             }]
                         },
-                        options: {
-                            responsive: true,
-                            scales: { y: { beginAtZero: true } }
-                        }
-                    });
+                            options: {
+                                responsive: true,
+                                scales: { y: { beginAtZero: true } }
+                            }
+                        });
+                    }
+
+                // AI Recommendations
+                if (recoResp && recoResp.ok) {
+                    const recoData = await recoResp.json();
+                    const recoCards = document.getElementById("aiRecoCards");
+                    const recoLoading = document.getElementById("aiRecoLoading");
+                    if (recoData.recommendations && recoData.recommendations.length > 0) {
+                        recoLoading.style.display = 'none';
+                        recoCards.style.display = 'grid';
+                        recoCards.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
+                        recoCards.style.gap = '20px';
+                        recoCards.innerHTML = '';
+                        recoData.recommendations.forEach(item => {
+                            recoCards.innerHTML += `
+                                <div class="menu-card" style="margin-bottom: 0;">
+                                    <div class="menu-img-wrapper">
+                                        <img src="${item.image_url}" alt="${item.name}" class="menu-img" onerror="this.src='/static/images/default.jpg'">
+                                    </div>
+                                    <div class="menu-info">
+                                        <h3 class="menu-name">${item.name}</h3>
+                                        <div class="menu-price">₹${item.price}</div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        recoLoading.textContent = "No recommendations available at this time. Order more healthy items to get recommendations!";
+                    }
                 }
             } catch (err) {
                 console.error("Error loading profile:", err);
