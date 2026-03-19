@@ -89,6 +89,20 @@ db = mysql.connector.connect(
 
 cursor = db.cursor(dictionary=True)
 
+def get_cursor():
+    """Get a fresh buffered cursor, reconnecting if needed"""
+    global db
+    try:
+        db.ping(reconnect=True, attempts=3, delay=1)
+    except Exception:
+        db = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="ayush123",
+            database="healthy_cafe_db"
+        )
+    return db.cursor(dictionary=True, buffered=True)
+
 # Idempotent schema initialization
 def init_schema():
     cursor.execute("SHOW COLUMNS FROM menu_items LIKE 'is_active'")
@@ -117,7 +131,28 @@ def init_schema():
             id INT AUTO_INCREMENT PRIMARY KEY,
             admin_id INT,
             action VARCHAR(255),
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS login_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            login_time DATETIME,
+            ip_address VARCHAR(50),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS login_otp (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            otp_code VARCHAR(6),
+            expiry_time DATETIME,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
     
@@ -941,18 +976,11 @@ def profile_page():
         if not mobile:
             return jsonify({'error': 'Mobile number is required'}), 400
 
-        user = next((u for u in users if u['mobile'] == mobile), None)
+        cursor.execute("SELECT id, name, mobile, email, dob, gender FROM users WHERE mobile=%s", (mobile,))
+        user = cursor.fetchone()
 
         if user:
-            user_data = {
-                'id': user['id'],
-                'name': user['name'],
-                'mobile': user['mobile'],
-                'email': user['email'],
-                'dob': user['dob'],
-                'gender': user['gender']
-            }
-            return jsonify({'exists': True, 'user': user_data})
+            return jsonify({'exists': True, 'user': user})
         else:
             return jsonify({'exists': False})
 
@@ -1091,50 +1119,51 @@ def admin_required(f):
 @admin_required
 def admin_dashboard():
     try:
+        c = get_cursor()
+
         # Safe defaults
         total_users = 0
         total_orders = 0
         total_revenue = 0.0
         revenue_list = []
-        low_stock_items = []
         low_stock_count = 0
 
         # USERS
-        cursor.execute("SELECT COUNT(*) as total FROM users WHERE role='user'")
-        result = cursor.fetchone()
+        c.execute("SELECT COUNT(*) as total FROM users WHERE role='user'")
+        result = c.fetchone()
         total_users = result["total"] if result else 0
 
         # ORDERS
-        cursor.execute("SELECT COUNT(*) as total FROM orders")
-        result = cursor.fetchone()
+        c.execute("SELECT COUNT(*) as total FROM orders")
+        result = c.fetchone()
         total_orders = result["total"] if result else 0
 
-        # REVENUE - FIXED: only DELIVERED orders
-        cursor.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE order_status='DELIVERED'")
-        result = cursor.fetchone()
+        # REVENUE - only DELIVERED orders
+        c.execute("SELECT SUM(total_amount) as total_revenue FROM orders WHERE order_status='DELIVERED'")
+        result = c.fetchone()
         total_revenue = result["total_revenue"] or 0
 
         # LOW STOCK - safe handling
         try:
-            cursor.execute("SELECT COUNT(*) as total FROM inventory WHERE quantity < 10")
-            result = cursor.fetchone()
+            c.execute("SELECT COUNT(*) as total FROM inventory WHERE quantity < 10")
+            result = c.fetchone()
             low_stock_count = result["total"] if result else 0
         except Exception as e:
             print(f"Inventory query failed (table/column missing): {e}")
             low_stock_count = 0
 
-        # WEEKLY REVENUE - Fixed last 7 days - CORRECTED to DELIVERED only
+        # WEEKLY REVENUE - last 7 days DELIVERED only
         seven_days_ago = datetime.now().date() - timedelta(days=7)
-        cursor.execute("""
+        c.execute("""
             SELECT DATE(created_at) as date, SUM(total_amount) as revenue
             FROM orders
             WHERE order_status='DELIVERED' AND DATE(created_at) >= %s
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
         """, (seven_days_ago,))
-        revenue_data = cursor.fetchall()
+        revenue_data = c.fetchall()
         
-        # Fill 7 days with data or 0 (use original date objects)
+        # Fill 7 days with data or 0
         date_map = {row['date'].strftime('%Y-%m-%d'): float(row['revenue'] or 0) for row in revenue_data}
         for i in range(7):
             target_date = (datetime.now().date() - timedelta(days=i)).strftime('%Y-%m-%d')
@@ -1144,47 +1173,48 @@ def admin_dashboard():
             })
         revenue_list.reverse()
         
-        # Convert revenue_data dates for template JSON safety (though revenue_list used primarily)
         for row in revenue_data:
             row["date"] = str(row["date"])
 
         # Recent orders (top 5)
-        cursor.execute("""
+        c.execute("""
             SELECT o.id, u.name as customer_name, o.total_amount, o.order_status, o.created_at
             FROM orders o
             JOIN users u ON o.user_id = u.id
             ORDER BY o.created_at DESC
             LIMIT 5
         """)
-        recent_orders = cursor.fetchall()
+        recent_orders = c.fetchall()
 
         # Category sales data
         try:
-            cursor.execute("""
+            c.execute("""
                 SELECT mi.category, COUNT(*) as order_count
                 FROM order_items oi
                 JOIN menu_items mi ON oi.menu_item_id = mi.id
                 GROUP BY mi.category
                 ORDER BY order_count DESC
             """)
-            category_raw = cursor.fetchall()
+            category_raw = c.fetchall()
             category_data = [{'label': row['category'] or 'Uncategorized', 'value': row['order_count'] or 0} for row in category_raw]
         except Exception as e:
             print("Categories error:", e)
             category_data = []
 
         # Order status distribution
-        cursor.execute("""
+        c.execute("""
             SELECT order_status, COUNT(*) as count
             FROM orders
             GROUP BY order_status
         """)
-        status_raw = cursor.fetchall()
-        total_orders_all = total_orders or 1  # Avoid div/0
+        status_raw = c.fetchall()
+        total_orders_all = total_orders or 1
         order_status_data = [
             {'label': row['order_status'], 'value': row['count'], 'percentage': round((row['count']/total_orders_all)*100, 1)}
             for row in status_raw
         ]
+
+        c.close()
 
         return render_template(
             "admin/dashboard.html",
@@ -1199,7 +1229,10 @@ def admin_dashboard():
         )
     except Exception as e:
         print(f"ERROR in admin_dashboard: {e}")
-        return render_template("500.html", error=str(e)), 500
+        try:
+            return render_template("500.html"), 500
+        except Exception:
+            return "<h1>500 - Server Error</h1><p>Something went wrong.</p><a href='/'>Go Home</a>", 500
 
 @app.route("/admin/users")
 @admin_required
@@ -1548,7 +1581,8 @@ def admin_settings():
 @app.route("/admin")
 def admin_index():
     if "admin_id" in session:
-        return render_template("admin/dashboard.html")
+        from flask import redirect
+        return redirect("/admin/dashboard")
     return render_template("admin/login.html")
 
 @app.route("/admin/logout")
@@ -1556,42 +1590,75 @@ def admin_logout():
     session.pop("admin_id", None)
     return render_template("admin/login.html")
 
+@app.route('/admin/category-data')
+def admin_category_data():
+    """API endpoint for Best Selling Categories chart"""
+    try:
+        c = get_cursor()
+        c.execute("""
+            SELECT mi.category, COUNT(*) as order_count
+            FROM order_items oi
+            JOIN menu_items mi ON oi.menu_item_id = mi.id
+            GROUP BY mi.category
+            ORDER BY order_count DESC
+        """)
+        rows = c.fetchall()
+        c.close()
+        data = [{"category": row["category"] or "Uncategorized", "count": row["order_count"]} for row in rows]
+        return jsonify(data)
+    except Exception as e:
+        print(f"Category data error: {e}")
+        return jsonify([]), 500
+
 @app.route('/admin/recent-orders')
 def recent_orders():
-    cursor.execute("""
-        SELECT o.id, u.name AS customer, o.total_amount AS total, o.order_status AS status
-        FROM orders o
-        JOIN users u ON o.user_id = u.id
-        ORDER BY o.created_at DESC
-        LIMIT 5
-    """)
-    orders = cursor.fetchall()
-    return jsonify(orders)
+    try:
+        c = get_cursor()
+        c.execute("""
+            SELECT o.id, u.name AS customer, o.total_amount AS total, o.order_status AS status
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            ORDER BY o.created_at DESC
+            LIMIT 5
+        """)
+        orders = c.fetchall()
+        c.close()
+        return jsonify(orders)
+    except Exception as e:
+        print(f"Recent orders error: {e}")
+        return jsonify([]), 500
 
 @app.route('/admin/order-distribution')
 def order_distribution():
-    cursor.execute("""
-        SELECT order_status as status, COUNT(*) as count
-        FROM orders
-        GROUP BY order_status
-    """)
-    
-    data = cursor.fetchall()
-    return jsonify(data)
+    try:
+        c = get_cursor()
+        c.execute("""
+            SELECT order_status as status, COUNT(*) as count
+            FROM orders
+            GROUP BY order_status
+        """)
+        data = c.fetchall()
+        c.close()
+        return jsonify(data)
+    except Exception as e:
+        print(f"Order distribution error: {e}")
+        return jsonify([]), 500
 
 @app.route('/admin/revenue-data')
 def admin_revenue_data():
     """API endpoint for dashboard revenue chart - last 7 days with 0-filled dates"""
     try:
+        c = get_cursor()
         seven_days_ago = datetime.now().date() - timedelta(days=7)
-        cursor.execute("""
+        c.execute("""
             SELECT DATE(created_at) as date, SUM(total_amount) as revenue
             FROM orders
             WHERE order_status='DELIVERED' AND DATE(created_at) >= %s
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
         """, (seven_days_ago,))
-        revenue_data = cursor.fetchall()
+        revenue_data = c.fetchall()
+        c.close()
         
         # Fill missing dates with 0
         date_map = {row['date'].strftime('%Y-%m-%d'): float(row['revenue'] or 0) for row in revenue_data}
@@ -1616,11 +1683,18 @@ def page_not_found(e):
 
 @app.errorhandler(500)
 def internal_error(e):
-    return render_template("500.html"), 500
+    try:
+        return render_template("500.html"), 500
+    except Exception:
+        return "<h1>500 - Server Error</h1><p>Something went wrong.</p><a href='/'>Go Home</a>", 500
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    return render_template("500.html"), 500
+    print(f"Unhandled exception: {e}")
+    try:
+        return render_template("500.html"), 500
+    except Exception:
+        return "<h1>500 - Server Error</h1><p>Something went wrong.</p><a href='/'>Go Home</a>", 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=3000)

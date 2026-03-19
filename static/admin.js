@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Dashboard chart instances - prevent duplicates
     let revenueChartInstance = null;
     let orderChartInstance = null;
+    let categoryChartInstance = null;
 
     // Fill missing dates for revenue chart (critical for 7-day consistency)
     function fillMissingDates(data) {
@@ -662,32 +663,65 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
+    // Best Selling Categories chart
+    async function loadCategoryChart() {
+        try {
+            const res = await fetch('/admin/category-data');
+            const data = await res.json();
 
+            const labels = data.map(d => d.category);
+            const values = data.map(d => d.count);
 
-    // AUTO SYNC - main feature (dashboard only)
-    function startDashboardAutoSync() {
-        // Initial load
+            const ctx = document.getElementById('categoryChart');
+            if (!ctx) return;
+
+            if (categoryChartInstance) {
+                categoryChartInstance.destroy();
+            }
+
+            categoryChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Orders',
+                        data: values,
+                        backgroundColor: ["#6366f1", "#f59e0b", "#22c55e", "#3b82f6", "#ef4444", "#8b5cf6"],
+                        borderWidth: 0,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Category chart error:', err);
+        }
+    }
+
+    // Dashboard load - fetch charts and orders once on page load
+    function loadDashboard() {
         loadRevenueChart();
         loadOrderDistribution();
+        loadCategoryChart();
         loadRecentOrders();
-
-        // Auto refresh every 5 seconds
-        setInterval(() => {
-            loadRevenueChart();
-            loadOrderDistribution();
-            loadRecentOrders();
-        }, 5000);
     }
 
     // Trigger ONLY on dashboard page
     if (window.location.pathname.includes("/admin/dashboard")) {
         if (typeof Chart !== "undefined") {
-            startDashboardAutoSync();
+            loadDashboard();
         } else {
             // Chart.js not loaded yet - wait and retry
             const observer = new MutationObserver(() => {
                 if (typeof Chart !== "undefined") {
-                    startDashboardAutoSync();
+                    loadDashboard();
                     observer.disconnect();
                 }
             });
