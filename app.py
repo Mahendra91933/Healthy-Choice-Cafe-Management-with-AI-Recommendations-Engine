@@ -79,29 +79,38 @@ def get_food_recommendations(item_id):
 
 
 import mysql.connector
+from mysql.connector import pooling
+from werkzeug.local import LocalProxy
+from flask import g
 
-db = mysql.connector.connect(
+db_pool = pooling.MySQLConnectionPool(
+    pool_name="mypool",
+    pool_size=10,
+    pool_reset_session=True,
     host="localhost",
     user="root",
     password="ayush123",
     database="healthy_cafe_db"
 )
 
-cursor = db.cursor(dictionary=True)
+# Startup DB info for init_schema block
+_startup_db = db_pool.get_connection()
+cursor = _startup_db.cursor(dictionary=True, buffered=True)
+db = _startup_db
+
+def get_db():
+    if 'db' not in g:
+        g.db = db_pool.get_connection()
+    return g.db
+
+def get_req_cursor():
+    if 'cursor' not in g:
+        g.cursor = get_db().cursor(dictionary=True, buffered=True)
+    return g.cursor
 
 def get_cursor():
-    """Get a fresh buffered cursor, reconnecting if needed"""
-    global db
-    try:
-        db.ping(reconnect=True, attempts=3, delay=1)
-    except Exception:
-        db = mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="ayush123",
-            database="healthy_cafe_db"
-        )
-    return db.cursor(dictionary=True, buffered=True)
+    """Return the proxy cursor so existing c = get_cursor() code works transparently"""
+    return cursor
 
 # Idempotent schema initialization
 def init_schema():
@@ -173,12 +182,39 @@ def init_schema():
 
 init_schema()
 
+# Cleanup startup connections
+try:
+    cursor.close()
+    db.close()
+except Exception:
+    pass
+
+# Redefine db and cursor to be Context-Bound (LocalProxy) for all incoming routes
+db = LocalProxy(get_db)
+cursor = LocalProxy(get_req_cursor)
+
 # In‑memory guest order storage (used for quick profile insights)
 guest_orders = []
 
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # Change to a secure key in production
+
+@app.teardown_appcontext
+def teardown_db_connection(exception):
+    c = g.pop('cursor', None)
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
+    d = g.pop('db', None)
+    if d is not None:
+        try:
+            d.close()
+        except Exception:
+            pass
+
 
 
 
