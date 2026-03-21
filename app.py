@@ -1712,6 +1712,48 @@ def admin_revenue_data():
         print(f"Revenue data error: {e}")
         return jsonify([]), 500
 
+@app.route('/admin/settings', methods=['GET', 'POST'])
+def admin_settings_page():
+    c = get_cursor()
+    if request.method == 'GET':
+        if request.headers.get('Accept') == 'application/json' or request.is_json or request.content_type == 'application/json':
+            c.execute("SELECT setting_value FROM system_settings WHERE setting_key='meal_mode'")
+            result = c.fetchone()
+            meal_mode = result['setting_value'] if result else 'all'
+            c.close()
+            return jsonify({'success': True, 'meal_mode': meal_mode})
+        c.close()
+        return render_template('admin/settings.html')
+        
+    if request.method == 'POST':
+        data = request.get_json()
+        meal_mode = data.get('meal_mode', 'all')
+        
+        c.execute("""
+            INSERT INTO system_settings (setting_key, setting_value) 
+            VALUES ('meal_mode', %s) 
+            ON DUPLICATE KEY UPDATE setting_value=%s
+        """, (meal_mode, meal_mode))
+        db.commit()
+        c.close()
+        return jsonify({'success': True, 'meal_mode': meal_mode})
+
+@app.route('/admin/inventory', methods=['GET'])
+def admin_inventory_page():
+    return render_template('admin/inventory.html')
+
+@app.route('/admin/inventory-data', methods=['GET'])
+def fetch_admin_inventory_data():
+    try:
+        c = get_cursor()
+        c.execute("SELECT * FROM inventory ORDER BY id DESC")
+        items = c.fetchall()
+        c.close()
+        return jsonify(items)
+    except Exception as e:
+        print(f"Inventory data error: {e}")
+        return jsonify([]), 500
+
 
 @app.errorhandler(404)
 def page_not_found(e):

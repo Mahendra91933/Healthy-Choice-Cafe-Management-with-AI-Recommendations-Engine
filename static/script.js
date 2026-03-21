@@ -696,7 +696,7 @@ async function loadFoodItems() {
     menuGrid.innerHTML = '<p style="padding:1rem;color:#6b7280;">Loading menu items…</p>';
 
     try {
-        const response = await fetch("http://127.0.0.1:3000/menu-items");
+        const response = await fetch("http://127.0.0.1:3000/food-items");
         if (!response.ok) {
             throw new Error("Failed to load menu items");
         }

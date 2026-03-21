@@ -596,6 +596,48 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    // ----------------------------------------
+    // Inventory Management (/admin/inventory)
+    // ----------------------------------------
+    if (window.location.pathname === "/admin/inventory") {
+        const inventoryTable = document.getElementById("inventoryTable");
+        
+        async function loadInventory() {
+            if (!inventoryTable) return;
+            inventoryTable.innerHTML = `<tr><td colspan="4">Loading inventory...</td></tr>`;
+            try {
+                const res = await fetch("/admin/inventory-data");
+                const data = await res.json();
+                
+                if (!data || data.length === 0) {
+                    inventoryTable.innerHTML = `<tr><td colspan="4">No inventory items found.</td></tr>`;
+                    return;
+                }
+                
+                inventoryTable.innerHTML = "";
+                data.forEach(item => {
+                    const isLow = item.quantity <= item.threshold;
+                    const statusClass = isLow ? "inactive" : "active";
+                    const statusText = isLow ? "Low Stock" : "In Stock";
+                    
+                    inventoryTable.innerHTML += `
+                        <tr>
+                            <td>${item.ingredient_name}</td>
+                            <td>${item.quantity}</td>
+                            <td>${item.threshold}</td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error("Inventory error:", err);
+                inventoryTable.innerHTML = `<tr><td colspan="4">Error loading inventory.</td></tr>`;
+            }
+        }
+        
+        loadInventory();
+    }
+
 
 
 // View All handler
